@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>Italy Bill Split</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root{
+  --bg:#f6f7f9; --card:#ffffff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb;
+  --accent:#0f766e; --accent-ink:#ffffff; --warn:#b45309; --warn-bg:#fef3c7;
+  --danger:#b91c1c; --ok:#047857; --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0b1220; --card:#131c2e; --ink:#e9eef6; --muted:#9aa6b8; --line:#26334a;
+         --accent:#2dd4bf; --accent-ink:#04201d; --warn:#fbbf24; --warn-bg:#3a2d0c;
+         --danger:#f87171; --ok:#34d399; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding-bottom:88px; -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0}
+h2{font-size:17px;margin:0 0 10px}
+h3{font-size:15px;margin:0 0 6px}
+p{margin:0 0 10px}
+.sub{color:var(--muted);font-size:13px}
+header{
+  position:sticky;top:0;z-index:20;background:var(--bg);
+  border-bottom:1px solid var(--line);padding:12px 16px;
+  display:flex;align-items:center;gap:10px;justify-content:space-between;
+}
+header .rate{font-size:12px;color:var(--muted);text-align:right;line-height:1.3}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+input,select,textarea{
+  width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+  background:var(--card);color:var(--ink);font-size:16px;font-family:inherit;
+}
+textarea{min-height:80px;resize:vertical}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1 1 140px;min-width:0}
+.field{margin-bottom:10px}
+button{
+  font:inherit;font-size:15px;padding:11px 14px;border-radius:10px;border:1px solid var(--line);
+  background:var(--card);color:var(--ink);cursor:pointer;
+}
+button:active{transform:translateY(1px)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:600}
+button.ghost{background:transparent}
+button.danger{color:var(--danger)}
+button.wide{width:100%}
+button:disabled{opacity:.5;cursor:not-allowed}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+nav{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;
+  background:var(--card);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+nav button{flex:1;border:0;border-radius:0;background:transparent;padding:12px 4px;font-size:12px;color:var(--muted)}
+nav button .ico{display:block;font-size:19px;line-height:1.2}
+nav button.on{color:var(--accent);font-weight:600}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;
+  border:1px solid var(--line);background:var(--card);font-size:14px;cursor:pointer;
+}
+.chip .dot{width:10px;height:10px;border-radius:50%;flex:none}
+.chip.on{border-color:transparent;color:#fff;font-weight:600}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.item{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.item .grow{flex:1;min-width:0}
+.item .amt{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:999px;color:#fff;margin:2px 4px 0 0}
+.tag.plain{background:var(--muted)}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.tiny{font-size:11px}
+.notice{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+.err{color:var(--danger);font-size:14px}
+.totrow{display:flex;justify-content:space-between;padding:6px 0;font-variant-numeric:tabular-nums}
+.totrow.big{font-size:18px;font-weight:700;border-top:1px solid var(--line);margin-top:6px;padding-top:10px}
+.queue{border:2px solid var(--accent);border-radius:var(--radius);padding:14px;margin-bottom:14px;background:var(--card)}
+.queue .q-amt{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.progress{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin:10px 0}
+.progress i{display:block;height:100%;background:var(--accent)}
+.hidden{display:none}
+.thumb{max-width:100%;border-radius:10px;border:1px solid var(--line);margin-top:8px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s .8s linear infinite;vertical-align:-2px}
+@keyframes s{to{transform:rotate(360deg)}}
+.rcpt{display:flex;justify-content:space-between;gap:10px;align-items:center;width:100%;text-align:left;margin-bottom:8px}
+details summary{cursor:pointer;color:var(--muted);font-size:14px;padding:4px 0}
+.inline-edit{display:grid;grid-template-columns:1fr 92px 34px;gap:6px;align-items:center;margin-bottom:6px}
+.inline-edit input{padding:8px 9px;font-size:14px}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1 id="tripName">Italy Bill Split</h1>
+    <div class="sub" id="tripSub">Set up your trip to start</div>
+  </div>
+  <div class="rate" id="rateBadge"></div>
+</header>
+
+<main class="wrap" id="view"></main>
+
+<nav>
+  <button data-tab="trip"><span class="ico">👥</span>Trip</button>
+  <button data-tab="receipts"><span class="ico">🧾</span>Receipts</button>
+  <button data-tab="summary"><span class="ico">📊</span>Who owes</button>
+</nav>
+
+<script>
+/* ---------------------------------------------------------------
+   Italy Bill Split - single page, offline-friendly, no build step.
+   Data lives in this browser only (localStorage).
+--------------------------------------------------------------- */
+
+const STORE_KEY = 'italy-bill-split-v1';
+const KEY_KEY   = 'italy-bill-split-apikey';
+const PALETTE = ['#2563EB','#059669','#D97706','#DC2626','#7C3AED','#0891B2','#DB2777','#65A30D'];
+const SHARED_WORDS = ['all','tutti','tutto','everyone','shared','share','table','tavolo','*'];
+const SHARED_ITEM_HINTS = ['coperto','servizio','service','mancia','tip','acqua','vino','bottiglia','pane','antipast','iva','tax','caraffa','birra grande'];
+
+let state = load();
+let ui = { tab:'trip', receiptId:null, queueLine:null, busy:false, msg:'', err:'' };
+
+/* ---------- storage ---------- */
+function blankState(){
+  return {
+    trip:{ name:'Italy 2026', rate:1.47 },
+    people:[],
+    receipts:[],
+    model:'claude-opus-5'
+  };
+}
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(!raw) return blankState();
+    return Object.assign(blankState(), JSON.parse(raw));
+  }catch(e){ return blankState(); }
+}
+function save(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+  catch(e){ ui.err = 'Could not save locally: '+e.message; }
+}
+function getKey(){ try{ return localStorage.getItem(KEY_KEY)||''; }catch(e){ return ''; } }
+function setKey(v){ try{ v ? localStorage.setItem(KEY_KEY,v) : localStorage.removeItem(KEY_KEY); }catch(e){} }
+
+/* ---------- helpers ---------- */
+const uid = () => Math.random().toString(36).slice(2,10);
+const round2 = n => Math.round((Number(n)||0)*100)/100;
+const eur = n => '€' + round2(n).toFixed(2);
+const cad = n => 'C$' + round2((Number(n)||0)*(Number(state.trip.rate)||0)).toFixed(2);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const person = id => state.people.find(p=>p.id===id);
+const receipt = id => state.receipts.find(r=>r.id===id);
+function parseAmount(v){
+  if(typeof v === 'number') return v;
+  let s = String(v||'').replace(/[^\d,.\-]/g,'');
+  if(s.includes(',') && s.includes('.')) s = s.lastIndexOf(',')>s.lastIndexOf('.') ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'');
+  else s = s.replace(',','.');
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+function today(){ return new Date().toISOString().slice(0,10); }
+
+/* ---------- notation matching -----------------------------------
+   A line counts as "noted" when its text carries initials or a name
+   from the trip roster, or a shared-table marker.
+------------------------------------------------------------------ */
+function matchNotation(text){
+  const raw = ' ' + String(text||'').toLowerCase().replace(/[()\[\]{}]/g,' ') + ' ';
+  for(const w of SHARED_WORDS){
+    const pat = w === '*' ? /\s\*\s/ : new RegExp('(^|[\\s,+/\\-])'+w+'([\\s,+/\\-]|$)');
+    if(pat.test(raw)) return { ids:'ALL', why:'marked shared' };
+  }
+  const hits = [];
+  for(const p of state.people){
+    const tokens = [p.tag, p.name, p.name.split(/\s+/)[0]].filter(Boolean).map(t=>t.toLowerCase());
+    for(const t of tokens){
+      if(t.length < 1) continue;
+      const pat = new RegExp('(^|[\\s,+/\\-])'+t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'([\\s,+/\\-.]|$)');
+      if(pat.test(raw)){ hits.push(p.id); break; }
+    }
+  }
+  if(hits.length) return { ids:[...new Set(hits)], why:'noted on receipt' };
+  return null;
+}
+function suggestShared(desc){
+  const d = String(desc||'').toLowerCase();
+  return SHARED_ITEM_HINTS.some(w => d.includes(w));
+}
+
+/* ---------- money maths ---------- */
+function lineOwners(line){
+  if(line.assigned === 'ALL') return state.people.map(p=>p.id);
+  if(Array.isArray(line.assigned)) return line.assigned.filter(id=>person(id));
+  return [];
+}
+function receiptLinesTotal(r){ return round2(r.lines.reduce((s,l)=>s+(Number(l.amount)||0),0)); }
+function receiptUnassigned(r){ return round2(r.lines.filter(l=>lineOwners(l).length===0).reduce((s,l)=>s+(Number(l.amount)||0),0)); }
+
+/* Shares for one receipt: {personId: amount}.
+   Everything runs in whole cents and every leftover cent is handed to a
+   real person, so the shares always add back to the receipt exactly.
+   Extra (tip or rounding) rides on each person's share of the items. */
+function receiptShares(r){
+  const cents = {};
+  state.people.forEach(p => cents[p.id] = 0);
+  let rotate = 0;
+
+  for(const l of r.lines){
+    const owners = lineOwners(l);
+    if(!owners.length) continue;
+    const amt = Math.round((Number(l.amount)||0) * 100);
+    const base = Math.trunc(amt / owners.length);
+    owners.forEach(id => { cents[id] += base; });
+
+    // Spread the odd cents one at a time, starting from a different
+    // person on each line so the same person is not always rounded up.
+    let left = amt - base * owners.length;
+    const step = left >= 0 ? 1 : -1;
+    for(let k = 0; left !== 0; k++, left -= step){
+      cents[owners[(rotate + k) % owners.length]] += step;
+    }
+    rotate++;
+  }
+
+  const extra = Math.round(parseAmount(r.extra) * 100);
+  if(extra){
+    const itemTotal = Object.values(cents).reduce((a,b) => a+b, 0);
+    const ids = itemTotal > 0
+      ? state.people.map(p => p.id).filter(id => cents[id] !== 0)
+      : state.people.map(p => p.id);
+    if(ids.length){
+      let handed = 0;
+      if(itemTotal > 0){
+        ids.forEach(id => {
+          const cut = Math.trunc(extra * cents[id] / itemTotal);
+          cents[id] += cut; handed += cut;
+        });
+      }else{
+        const each = Math.trunc(extra / ids.length);
+        ids.forEach(id => { cents[id] += each; handed += each; });
+      }
+      let left = extra - handed;
+      const step = left >= 0 ? 1 : -1;
+      for(let k = 0; left !== 0; k++, left -= step) cents[ids[k % ids.length]] += step;
+    }
+  }
+
+  const out = {};
+  state.people.forEach(p => out[p.id] = cents[p.id] / 100);
+  return out;
+}
+function tripTotals(){
+  const owed = {}, paid = {};
+  state.people.forEach(p => { owed[p.id]=0; paid[p.id]=0; });
+  for(const r of state.receipts){
+    const sh = receiptShares(r);
+    Object.keys(sh).forEach(id => { if(owed[id]!==undefined) owed[id]+=sh[id]; });
+    if(r.payerId && paid[r.payerId]!==undefined){
+      paid[r.payerId] += Object.values(sh).reduce((a,b)=>a+b,0);
+    }
+  }
+  state.people.forEach(p => { owed[p.id]=round2(owed[p.id]); paid[p.id]=round2(paid[p.id]); });
+  return { owed, paid };
+}
+function settlements(){
+  const { owed, paid } = tripTotals();
+  const bal = state.people.map(p => ({ id:p.id, net: round2(paid[p.id]-owed[p.id]) }));
+  const cred = bal.filter(b=>b.net>0.009).sort((a,b)=>b.net-a.net);
+  const debt = bal.filter(b=>b.net<-0.009).sort((a,b)=>a.net-b.net);
+  const moves = [];
+  let i=0, j=0;
+  while(i<debt.length && j<cred.length){
+    const amt = round2(Math.min(-debt[i].net, cred[j].net));
+    if(amt > 0.009) moves.push({ from:debt[i].id, to:cred[j].id, amount:amt });
+    debt[i].net = round2(debt[i].net + amt);
+    cred[j].net = round2(cred[j].net - amt);
+    if(Math.abs(debt[i].net) < 0.01) i++;
+    if(Math.abs(cred[j].net) < 0.01) j++;
+  }
+  return moves;
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  document.getElementById('tripName').textContent = state.trip.name || 'Italy Bill Split';
+  const n = state.people.length, rc = state.receipts.length;
+  document.getElementById('tripSub').textContent =
+    n ? `${n} ${n===1?'person':'people'} · ${rc} ${rc===1?'receipt':'receipts'}` : 'Add the people on this trip first';
+  document.getElementById('rateBadge').innerHTML = `€1 = C$${(Number(state.trip.rate)||0).toFixed(2)}`;
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab===ui.tab));
+  const v = document.getElementById('view');
+  if(ui.tab==='trip') v.innerHTML = viewTrip();
+  else if(ui.tab==='receipts') v.innerHTML = ui.receiptId ? viewReceipt() : viewReceiptList();
+  else v.innerHTML = viewSummary();
+  ui.err=''; ui.msg='';
+}
+
+function viewTrip(){
+  const people = state.people.map((p,i)=>`
+    <div class="item">
+      <span class="dot" style="width:14px;height:14px;border-radius:50%;background:${p.colour};margin-top:5px;flex:none"></span>
+      <div class="grow">
+        <div><strong>${esc(p.name)}</strong> <span class="muted small">notation: ${esc(p.tag)}</span></div>
+      </div>
+      <button class="ghost danger" data-act="delPerson" data-id="${p.id}">Remove</button>
+    </div>`).join('') || '<p class="muted small">Nobody yet. Add everyone before the first dinner.</p>';
+
+  return `
+  <div class="card">
+    <h2>Who is on the trip</h2>
+    <p class="sub">The notation is what you scribble on a receipt. Initials work well. The tool reads it and skips asking about that line.</p>
+    ${people}
+    <div class="row" style="margin-top:12px">
+      <div style="flex:2 1 180px"><label for="pName">Name</label><input id="pName" placeholder="Jason"></div>
+      <div style="flex:1 1 90px"><label for="pTag">Notation</label><input id="pTag" placeholder="J" maxlength="6"></div>
+    </div>
+    <button class="primary wide" data-act="addPerson" style="margin-top:8px">Add person</button>
+  </div>
+
+  <div class="card">
+    <h2>Trip settings</h2>
+    <div class="row">
+      <div class="field"><label for="tName">Trip name</label><input id="tName" value="${esc(state.trip.name)}" data-act="setTripName"></div>
+      <div class="field"><label for="tRate">EUR to CAD rate</label><input id="tRate" type="number" step="0.001" inputmode="decimal" value="${state.trip.rate}" data-act="setRate"></div>
+    </div>
+    <p class="sub">Every total shows in euros and Canadian dollars at this rate. Update it any time; all figures follow.</p>
+  </div>
+
+  <div class="card">
+    <h2>Receipt photos</h2>
+    <p class="sub">Claude reads the photo and lists the items. Your key stays in this browser and never leaves it except to call Anthropic directly.</p>
+    <div class="field"><label for="apiKey">Anthropic API key (optional)</label>
+      <input id="apiKey" type="password" placeholder="sk-ant-..." value="${esc(getKey())}" data-act="setKey"></div>
+    <div class="field"><label for="model">Model</label>
+      <select id="model" data-act="setModel">
+        <option value="claude-opus-5"${state.model==='claude-opus-5'?' selected':''}>Claude Opus 5 (best reading)</option>
+        <option value="claude-sonnet-5"${state.model==='claude-sonnet-5'?' selected':''}>Claude Sonnet 5 (cheaper)</option>
+        <option value="claude-haiku-4-5"${state.model==='claude-haiku-4-5'?' selected':''}>Claude Haiku 4.5 (cheapest)</option>
+      </select></div>
+    <p class="sub">No key? The app falls back to on-device OCR, which is free but rougher. You can also type lines by hand at any time.</p>
+  </div>
+
+  <div class="card">
+    <h2>Your data</h2>
+    <div class="btnrow">
+      <button data-act="exportJson">Download backup</button>
+      <button class="danger" data-act="resetAll">Erase everything</button>
+    </div>
+    <p class="sub" style="margin-top:8px">Everything is stored in this browser. Clearing site data wipes it, so download a backup before you fly home.</p>
+  </div>`;
+}
+
+function viewReceiptList(){
+  const rows = state.receipts.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(r=>{
+    const un = receiptUnassigned(r);
+    const tot = round2(receiptLinesTotal(r) + parseAmount(r.extra));
+    return `
+    <button class="rcpt" data-act="openReceipt" data-id="${r.id}">
+      <span>
+        <strong>${esc(r.place||'Receipt')}</strong><br>
+        <span class="muted small">${esc(r.date||'')} · ${r.lines.length} lines${un>0?` · <span style="color:var(--warn)">${eur(un)} unassigned</span>`:''}</span>
+      </span>
+      <span class="amt">${eur(tot)}<br><span class="tiny muted">${cad(tot)}</span></span>
+    </button>`;
+  }).join('') || '<p class="muted small">No receipts yet.</p>';
+
+  return `
+  <div class="card">
+    <h2>Receipts</h2>
+    ${rows}
+    <button class="primary wide" data-act="newReceipt" style="margin-top:12px">Add a receipt</button>
+  </div>`;
+}
+
+function viewReceipt(){
+  const r = receipt(ui.receiptId);
+  if(!r){ ui.receiptId=null; return viewReceiptList(); }
+  if(!state.people.length){
+    return `<div class="card"><p class="notice">Add the people on your trip first, on the Trip tab.</p>
+      <button data-act="backToList">Back</button></div>`;
+  }
+
+  const unassigned = r.lines.filter(l => lineOwners(l).length===0);
+  const done = r.lines.length - unassigned.length;
+  const pct = r.lines.length ? Math.round(done/r.lines.length*100) : 0;
+  const linesTotal = receiptLinesTotal(r);
+  const grand = round2(linesTotal + parseAmount(r.extra));
+  const stated = parseAmount(r.statedTotal);
+  const diff = stated ? round2(grand - stated) : 0;
+  const shares = receiptShares(r);
+
+  return `
+  <div class="card">
+    <button class="ghost small" data-act="backToList" style="padding:4px 0;border:0">← All receipts</button>
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label>Place</label><input value="${esc(r.place)}" data-act="setPlace" data-id="${r.id}" placeholder="Trattoria Roma"></div>
+      <div class="field" style="flex:0 1 150px"><label>Date</label><input type="date" value="${esc(r.date)}" data-act="setDate" data-id="${r.id}"></div>
+    </div>
+    <div class="field"><label>Who paid the bill</label>
+      <select data-act="setPayer" data-id="${r.id}">
+        <option value="">Not set</option>
+        ${state.people.map(p=>`<option value="${p.id}"${r.payerId===p.id?' selected':''}>${esc(p.name)}</option>`).join('')}
+      </select></div>
+  </div>
+
+  ${photoCard(r)}
+
+  ${r.lines.length ? `
+  <div class="card">
+    <h2>Assigning lines</h2>
+    <div class="progress"><i style="width:${pct}%"></i></div>
+    <div class="small muted">${done} of ${r.lines.length} lines have an owner</div>
+  </div>` : ''}
+
+  ${(unassigned.length || ui.queueLine) ? queueCard(r, unassigned) : (r.lines.length ? `<div class="card"><h2>✅ Every line has an owner</h2><p class="sub">Check the split below, then head to Who owes.</p></div>` : '')}
+
+  <div class="card">
+    <h2>Lines</h2>
+    ${r.lines.map(l=>lineRow(r,l)).join('') || '<p class="muted small">No lines yet. Upload a photo or add them by hand.</p>'}
+    <details style="margin-top:10px"><summary>Add a line by hand</summary>
+      <div class="inline-edit" style="margin-top:8px">
+        <input id="nlDesc" placeholder="Item">
+        <input id="nlAmt" inputmode="decimal" placeholder="0,00">
+        <button data-act="addLine" data-id="${r.id}">+</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Receipt totals</h2>
+    <div class="totrow"><span>Lines</span><span>${eur(linesTotal)}</span></div>
+    <div class="field" style="margin-top:8px"><label>Tip or rounding (split by share)</label>
+      <input inputmode="decimal" value="${r.extra||''}" placeholder="0,00" data-act="setExtra" data-id="${r.id}"></div>
+    <div class="field"><label>Total printed on the receipt (optional check)</label>
+      <input inputmode="decimal" value="${r.statedTotal||''}" placeholder="0,00" data-act="setStated" data-id="${r.id}"></div>
+    <div class="totrow big"><span>Total</span><span>${eur(grand)} <span class="tiny muted">${cad(grand)}</span></span></div>
+    ${stated && Math.abs(diff)>0.01 ? `<div class="notice" style="margin-top:10px">Out by ${eur(Math.abs(diff))} against the printed total. ${diff>0?'Your lines add up to more than the receipt.':'A line is probably missing.'}</div>` : ''}
+    ${receiptUnassigned(r)>0 ? `<div class="notice">${eur(receiptUnassigned(r))} still has no owner and is left out of the split.</div>` : ''}
+  </div>
+
+  <div class="card">
+    <h2>This receipt by person</h2>
+    ${state.people.map(p=>{
+      const amt = shares[p.id]||0;
+      if(amt<=0.004) return '';
+      return `<div class="totrow"><span><span class="tag" style="background:${p.colour}">${esc(p.tag)}</span> ${esc(p.name)}</span><span>${eur(amt)} <span class="tiny muted">${cad(amt)}</span></span></div>`;
+    }).join('') || '<p class="muted small">Nothing assigned yet.</p>'}
+  </div>
+
+  <div class="card">
+    <button class="danger wide ghost" data-act="delReceipt" data-id="${r.id}">Delete this receipt</button>
+  </div>`;
+}
+
+function photoCard(r){
+  const key = getKey();
+  return `
+  <div class="card">
+    <h2>Receipt photo</h2>
+    <p class="sub">${key ? 'Claude will read it.' : 'No API key set, so on-device OCR runs instead. Slower and rougher on faded receipts.'}</p>
+    <input type="file" accept="image/*" capture="environment" id="photoInput" data-act="photo" data-id="${r.id}">
+    <div id="ocrStatus" class="small muted" style="margin-top:8px">${ui.busy?'<span class="spin"></span> Reading the receipt...':''}${ui.err?`<span class="err">${esc(ui.err)}</span>`:''}</div>
+    ${r.photo ? `<img class="thumb" src="${r.photo}" alt="Receipt photo">` : ''}
+    <details style="margin-top:10px"><summary>Or paste receipt text</summary>
+      <textarea id="pasteText" placeholder="Pasta al ragu 14,00&#10;Vino rosso 22,00 J&#10;Coperto 6,00"></textarea>
+      <button class="wide" data-act="parsePaste" data-id="${r.id}" style="margin-top:8px">Read these lines</button>
+    </details>
+  </div>`;
+}
+
+/* The line on screen stays put while you tap people, so one line can be
+   split between two or three of you. It only moves on when you say so. */
+function currentQueueLine(r, unassigned){
+  if(ui.queueLine){
+    const held = r.lines.find(l => l.id === ui.queueLine);
+    if(held) return held;
+    ui.queueLine = null;
+  }
+  return unassigned[0] || null;
+}
+function queueCard(r, unassigned){
+  const l = currentQueueLine(r, unassigned);
+  if(!l) return '';
+  const picked = Array.isArray(l.assigned) ? l.assigned : [];
+  const isAll = l.assigned === 'ALL';
+  const hint = suggestShared(l.desc);
+  const chosen = isAll ? state.people.length : picked.length;
+  const each = chosen ? round2((Number(l.amount)||0)/chosen) : 0;
+  const left = unassigned.length - (chosen ? 1 : 0);
+
+  return `
+  <div class="queue">
+    <div class="small muted">No notation on this line · ${unassigned.length} still to place</div>
+    <h3 style="margin:6px 0 2px;font-size:18px">${esc(l.desc||'Item')}</h3>
+    ${l.qty && l.qty>1 ? `<div class="small muted">Quantity ${l.qty}</div>` : ''}
+    <div class="q-amt">${eur(l.amount)} <span class="tiny muted">${cad(l.amount)}</span></div>
+    <p class="sub" style="margin-top:8px">Who is this for? Tap everyone sharing it.</p>
+    <div class="chips">
+      ${state.people.map(p=>{
+        const on = isAll || picked.includes(p.id);
+        return `<button class="chip${on?' on':''}" style="${on?`background:${p.colour}`:''}" data-act="assignOne" data-line="${l.id}" data-id="${r.id}" data-person="${p.id}"><span class="dot" style="background:${on?'#fff':p.colour}"></span>${esc(p.name)}</button>`;
+      }).join('')}
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="${chosen?'':'primary '}" data-act="assignAll" data-line="${l.id}" data-id="${r.id}" style="flex:1">${hint&&!chosen?'Everyone (likely)':'Everyone'}</button>
+      ${chosen
+        ? `<button class="primary" data-act="nextLine" data-id="${r.id}" style="flex:1">${left>0?'Next line':'Done'}</button>`
+        : `<button data-act="skipLine" data-line="${l.id}" data-id="${r.id}">Skip</button>`}
+    </div>
+    ${chosen ? `<div class="sub" style="margin-top:8px">${eur(each)} each across ${chosen} ${chosen===1?'person':'people'}.</div>`
+             : (hint?'<div class="sub" style="margin-top:8px">Looks like a shared item.</div>':'')}
+  </div>`;
+}
+
+function lineRow(r,l){
+  const owners = lineOwners(l);
+  const tags = l.assigned==='ALL'
+    ? '<span class="tag plain">Everyone</span>'
+    : owners.map(id=>{ const p=person(id); return p?`<span class="tag" style="background:${p.colour}">${esc(p.tag)}</span>`:''; }).join('');
+  return `
+  <div class="item">
+    <div class="grow">
+      <div>${esc(l.desc||'Item')}${l.qty&&l.qty>1?` <span class="muted small">×${l.qty}</span>`:''}</div>
+      <div>${tags || '<span class="tag plain" style="background:var(--warn);color:#000">needs an owner</span>'}
+        ${l.note?`<span class="tiny muted">note: ${esc(l.note)}</span>`:''}
+        ${l.why?`<span class="tiny muted">· ${esc(l.why)}</span>`:''}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="amt">${eur(l.amount)}</div>
+      <button class="ghost tiny" data-act="clearLine" data-id="${r.id}" data-line="${l.id}" style="padding:2px 6px;border:0;color:var(--muted)">reassign</button>
+      <button class="ghost tiny danger" data-act="delLine" data-id="${r.id}" data-line="${l.id}" style="padding:2px 6px;border:0">delete</button>
+    </div>
+  </div>`;
+}
+
+function viewSummary(){
+  if(!state.people.length) return '<div class="card"><p class="muted">Add people on the Trip tab first.</p></div>';
+  const { owed, paid } = tripTotals();
+  const moves = settlements();
+  const grand = round2(Object.values(owed).reduce((a,b)=>a+b,0));
+  const unassignedTotal = round2(state.receipts.reduce((s,r)=>s+receiptUnassigned(r),0));
+
+  return `
+  ${unassignedTotal>0?`<div class="notice">${eur(unassignedTotal)} across your receipts has no owner yet and is not in these figures.</div>`:''}
+  <div class="card">
+    <h2>What each person owes</h2>
+    ${state.people.map(p=>`
+      <div class="totrow">
+        <span><span class="tag" style="background:${p.colour}">${esc(p.tag)}</span> ${esc(p.name)}</span>
+        <span>${eur(owed[p.id])} <span class="tiny muted">${cad(owed[p.id])}</span></span>
+      </div>`).join('')}
+    <div class="totrow big"><span>Trip total</span><span>${eur(grand)} <span class="tiny muted">${cad(grand)}</span></span></div>
+  </div>
+
+  <div class="card">
+    <h2>Paid versus owed</h2>
+    ${state.people.map(p=>{
+      const net = round2(paid[p.id]-owed[p.id]);
+      const colour = net>0.009?'var(--ok)':(net<-0.009?'var(--danger)':'var(--muted)');
+      const word = net>0.009?'is owed':(net<-0.009?'owes':'settled');
+      return `<div class="totrow"><span>${esc(p.name)} <span class="tiny muted">paid ${eur(paid[p.id])}</span></span>
+        <span style="color:${colour}">${word} ${net===0?'':eur(Math.abs(net))}</span></div>`;
+    }).join('')}
+  </div>
+
+  <div class="card">
+    <h2>Settle up</h2>
+    ${moves.length ? moves.map(m=>`
+      <div class="totrow"><span><strong>${esc(person(m.from).name)}</strong> pays <strong>${esc(person(m.to).name)}</strong></span>
+      <span>${eur(m.amount)} <span class="tiny muted">${cad(m.amount)}</span></span></div>`).join('')
+      : '<p class="muted small">Nobody owes anybody. Set a payer on each receipt to see transfers.</p>'}
+    <p class="sub" style="margin-top:10px">Fewest transfers that clear every balance.</p>
+  </div>
+
+  <div class="card">
+    <h2>Export</h2>
+    <div class="btnrow">
+      <button data-act="copySummary">Copy summary text</button>
+      <button data-act="exportCsv">Download CSV</button>
+    </div>
+    <p class="sub" style="margin-top:8px">The CSV carries every line, its owners and both currencies. Drops straight into a spreadsheet.</p>
+  </div>`;
+}
+
+/* ---------- actions ---------- */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if(!el) return;
+  const act = el.dataset.act, id = el.dataset.id;
+  const acts = {
+    addPerson(){
+      const name = (document.getElementById('pName').value||'').trim();
+      let tag = (document.getElementById('pTag').value||'').trim();
+      if(!name) return;
+      if(!tag) tag = name.slice(0,1).toUpperCase();
+      if(state.people.some(p=>p.tag.toLowerCase()===tag.toLowerCase())){
+        alert('That notation is already taken. Pick something unique, like initials.'); return;
+      }
+      state.people.push({ id:uid(), name, tag, colour:PALETTE[state.people.length%PALETTE.length] });
+      save(); render();
+    },
+    delPerson(){
+      if(!confirm('Remove this person? Their assignments are cleared.')) return;
+      state.people = state.people.filter(p=>p.id!==id);
+      state.receipts.forEach(r=>{
+        if(r.payerId===id) r.payerId='';
+        r.lines.forEach(l=>{ if(Array.isArray(l.assigned)) l.assigned = l.assigned.filter(x=>x!==id); });
+      });
+      save(); render();
+    },
+    newReceipt(){
+      const r = { id:uid(), place:'', date:today(), payerId:'', lines:[], extra:'', statedTotal:'', photo:'' };
+      state.receipts.push(r); ui.receiptId=r.id; save(); render();
+    },
+    openReceipt(){ ui.receiptId=id; ui.queueLine=null; render(); },
+    backToList(){ ui.receiptId=null; ui.queueLine=null; render(); },
+    delReceipt(){
+      if(!confirm('Delete this receipt and all its lines?')) return;
+      state.receipts = state.receipts.filter(r=>r.id!==id); ui.receiptId=null; save(); render();
+    },
+    addLine(){
+      const r = receipt(id); if(!r) return;
+      const desc = (document.getElementById('nlDesc').value||'').trim();
+      const amount = parseAmount(document.getElementById('nlAmt').value);
+      if(!desc && !amount) return;
+      addLines(r, [{ desc, amount, qty:1, note:'' }]);
+      save(); render();
+    },
+    delLine(){
+      const r = receipt(id); if(!r) return;
+      r.lines = r.lines.filter(l=>l.id!==el.dataset.line); save(); render();
+    },
+    clearLine(){
+      const r = receipt(id); if(!r) return;
+      const l = r.lines.find(x=>x.id===el.dataset.line);
+      if(l){ l.assigned=[]; l.why=''; ui.queueLine=l.id; } save(); render();
+    },
+    assignOne(){
+      const r = receipt(id); if(!r) return;
+      const l = r.lines.find(x=>x.id===el.dataset.line); if(!l) return;
+      if(!Array.isArray(l.assigned)) l.assigned = [];
+      const pid = el.dataset.person;
+      l.assigned = l.assigned.includes(pid) ? l.assigned.filter(x=>x!==pid) : l.assigned.concat(pid);
+      l.why = 'you chose';
+      ui.queueLine = l.id;          // hold this line so you can add more people
+      save(); render();
+    },
+    assignAll(){
+      const r = receipt(id); if(!r) return;
+      const l = r.lines.find(x=>x.id===el.dataset.line); if(!l) return;
+      l.assigned = 'ALL'; l.why = 'everyone';
+      ui.queueLine = null;          // unambiguous, so move straight on
+      save(); render();
+    },
+    nextLine(){ ui.queueLine = null; render(); },
+    skipLine(){
+      const r = receipt(id); if(!r) return;
+      const i = r.lines.findIndex(x=>x.id===el.dataset.line);
+      if(i>-1){ const [l]=r.lines.splice(i,1); r.lines.push(l); }
+      ui.queueLine = null;
+      save(); render();
+    },
+    parsePaste(){
+      const r = receipt(id); if(!r) return;
+      const txt = document.getElementById('pasteText').value||'';
+      const lines = parseReceiptText(txt);
+      if(!lines.length){ alert('No amounts found in that text.'); return; }
+      addLines(r, lines); save(); render();
+    },
+    exportCsv(){ exportCsv(); },
+    copySummary(){ copySummary(el); },
+    exportJson(){
+      const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
+      download(blob, (state.trip.name||'trip').replace(/\W+/g,'-').toLowerCase()+'-backup.json');
+    },
+    resetAll(){
+      if(!confirm('Erase the whole trip from this browser? This cannot be undone.')) return;
+      state = blankState(); ui.receiptId=null; save(); render();
+    }
+  };
+  if(acts[act]){ e.preventDefault(); acts[act](); }
+});
+
+document.addEventListener('input', e => {
+  const el = e.target.closest('[data-act]'); if(!el) return;
+  const act = el.dataset.act, r = receipt(el.dataset.id);
+  const map = {
+    setTripName(){ state.trip.name = el.value; document.getElementById('tripName').textContent = el.value||'Italy Bill Split'; },
+    setRate(){ state.trip.rate = parseAmount(el.value); document.getElementById('rateBadge').innerHTML = `€1 = C$${(Number(state.trip.rate)||0).toFixed(2)}`; },
+    setKey(){ setKey(el.value.trim()); return; },
+    setModel(){ state.model = el.value; },
+    setPlace(){ if(r) r.place = el.value; },
+    setDate(){ if(r) r.date = el.value; },
+    setPayer(){ if(r) r.payerId = el.value; },
+    setExtra(){ if(r) r.extra = el.value; },
+    setStated(){ if(r) r.statedTotal = el.value; }
+  };
+  if(map[act]){ map[act](); save(); }
+});
+
+document.addEventListener('change', e => {
+  const el = e.target.closest('[data-act="photo"]');
+  if(el && el.files && el.files[0]) handlePhoto(el.dataset.id, el.files[0]);
+});
+
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+  ui.tab = b.dataset.tab; if(ui.tab!=='receipts'){ ui.receiptId=null; ui.queueLine=null; } render();
+}));
+
+/* ---------- adding lines with notation matching ---------- */
+function addLines(r, raw){
+  for(const x of raw){
+    const line = {
+      id: uid(),
+      desc: (x.desc||'').trim(),
+      amount: round2(parseAmount(x.amount)),
+      qty: Number(x.qty)||1,
+      note: (x.note||'').trim(),
+      assigned: [],
+      why: ''
+    };
+    const m = matchNotation(line.desc + ' ' + line.note);
+    if(m){ line.assigned = m.ids; line.why = m.why; }
+    r.lines.push(line);
+  }
+}
+
+/* ---------- plain text parsing ---------- */
+function parseReceiptText(txt){
+  const out = [];
+  for(let raw of String(txt).split(/\r?\n/)){
+    const line = raw.trim();
+    if(!line) continue;
+    if(/^(totale|total|subtotale|resto|contanti|carta|pagato|grazie|scontrino)\b/i.test(line)) continue;
+    const m = line.match(/^(.*?)[\s.]*(-?\d{1,4}[.,]\d{2})\s*(?:€|eur)?\s*(.*)$/i);
+    if(!m) continue;
+    let desc = m[1].trim(), amount = m[2], trailing = (m[3]||'').trim();
+    let qty = 1;
+    const q = desc.match(/^(\d{1,2})\s*[x×]\s*(.+)$/i);
+    if(q){ qty = parseInt(q[1],10); desc = q[2].trim(); }
+    if(!desc) desc = 'Item';
+    out.push({ desc, amount, qty, note: trailing });
+  }
+  return out;
+}
+
+/* ---------- photo handling ---------- */
+async function handlePhoto(receiptId, file){
+  const r = receipt(receiptId); if(!r) return;
+  ui.busy = true; ui.err=''; render();
+  try{
+    const small = await shrink(file, 1600);
+    r.photo = small.dataUrl; save();
+    let lines;
+    if(getKey()) lines = await readWithClaude(small, r);
+    else lines = await readWithTesseract(small.dataUrl);
+    if(!lines.length) throw new Error('No item lines came back. Try a sharper photo, or paste the text.');
+    addLines(r, lines);
+    save();
+  }catch(err){
+    ui.err = err.message || String(err);
+  }finally{
+    ui.busy = false; render();
+    if(ui.err){ const s=document.getElementById('ocrStatus'); if(s) s.innerHTML = `<span class="err">${esc(ui.err)}</span>`; }
+  }
+}
+
+function shrink(file, maxDim){
+  return new Promise((resolve,reject)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, maxDim/Math.max(img.width,img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width*scale); c.height = Math.round(img.height*scale);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);
+      const dataUrl = c.toDataURL('image/jpeg', 0.82);
+      resolve({ dataUrl, base64: dataUrl.split(',')[1], mime:'image/jpeg' });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file did not load as an image.')); };
+    img.src = url;
+  });
+}
+
+const EXTRACT_PROMPT = `You are reading a receipt from Italy. Extract every purchased line item.
+
+Return ONLY a JSON object, no prose and no code fence:
+{"place": string|null, "date": "YYYY-MM-DD"|null, "total": number|null,
+ "lines": [{"qty": number, "desc": string, "amount": number, "note": string|null}]}
+
+Rules:
+- amount is that line's total in euros as a plain number, decimal point, e.g. 14.5
+- desc keeps the Italian wording as printed
+- note holds any handwritten mark, initials or letters written beside the line, copied verbatim; otherwise null
+- include coperto, servizio and any discount lines (discounts negative)
+- do not include the grand total, change, payment method or VAT summary as lines
+- do not invent lines you cannot read`;
+
+async function readWithClaude(img, r){
+  const body = {
+    model: state.model || 'claude-opus-5',
+    max_tokens: 8000,
+    output_config: { effort: 'low' },
+    messages: [{
+      role: 'user',
+      content: [
+        { type:'image', source:{ type:'base64', media_type: img.mime, data: img.base64 } },
+        { type:'text', text: EXTRACT_PROMPT }
+      ]
+    }]
+  };
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      'x-api-key': getKey(),
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify(body)
+  });
+  if(!res.ok){
+    const t = await res.text();
+    if(res.status===401) throw new Error('The API key was rejected. Check it on the Trip tab.');
+    if(res.status===429) throw new Error('Rate limited. Wait a moment and try again.');
+    throw new Error(`Claude returned ${res.status}. ${t.slice(0,180)}`);
+  }
+  const data = await res.json();
+  if(data.stop_reason === 'refusal') throw new Error('Claude declined to read that image.');
+  const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+  const parsed = parseJsonLoose(text);
+  if(!parsed || !Array.isArray(parsed.lines)) throw new Error('Could not read the response as receipt lines.');
+  if(parsed.place && !r.place) r.place = parsed.place;
+  if(parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) r.date = parsed.date;
+  if(parsed.total && !parseAmount(r.statedTotal)) r.statedTotal = String(parsed.total);
+  return parsed.lines.map(l => ({ desc:l.desc, amount:l.amount, qty:l.qty||1, note:l.note||'' }));
+}
+
+function parseJsonLoose(text){
+  try{ return JSON.parse(text); }catch(e){}
+  const m = text.match(/\{[\s\S]*\}/);
+  if(m){ try{ return JSON.parse(m[0]); }catch(e){} }
+  return null;
+}
+
+async function readWithTesseract(dataUrl){
+  const status = document.getElementById('ocrStatus');
+  if(status) status.innerHTML = '<span class="spin"></span> Loading the on-device reader...';
+  if(!window.Tesseract) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js');
+  if(!window.Tesseract) throw new Error('On-device OCR needs a connection the first time. Paste the text instead, or add an API key.');
+  if(status) status.innerHTML = '<span class="spin"></span> Reading the photo on your device...';
+  const out = await window.Tesseract.recognize(dataUrl, 'ita+eng');
+  return parseReceiptText(out.data.text || '');
+}
+
+function loadScript(src){
+  return new Promise(resolve => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = () => resolve(true); s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+}
+
+/* ---------- exports ---------- */
+function download(blob, filename){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+function csvCell(v){ return '"' + String(v==null?'':v).replace(/"/g,'""') + '"'; }
+function exportCsv(){
+  const rows = [['Date','Place','Item','Qty','Amount EUR','Amount CAD','Assigned to','Per person EUR','Note','Payer']];
+  for(const r of state.receipts){
+    for(const l of r.lines){
+      const owners = lineOwners(l);
+      const names = l.assigned==='ALL' ? 'Everyone' : owners.map(id=>person(id).name).join(' + ');
+      const each = owners.length ? round2(l.amount/owners.length) : 0;
+      rows.push([r.date, r.place, l.desc, l.qty, round2(l.amount).toFixed(2),
+        round2(l.amount*(state.trip.rate||0)).toFixed(2), names || 'UNASSIGNED',
+        each.toFixed(2), l.note||'', r.payerId?person(r.payerId).name:'']);
+    }
+    if(parseAmount(r.extra)) rows.push([r.date, r.place, 'Tip or rounding', 1, round2(parseAmount(r.extra)).toFixed(2),
+      round2(parseAmount(r.extra)*(state.trip.rate||0)).toFixed(2), 'Split by share','', '', r.payerId?person(r.payerId).name:'']);
+  }
+  rows.push([]);
+  const { owed, paid } = tripTotals();
+  rows.push(['Person','Owes EUR','Owes CAD','Paid EUR','Net EUR']);
+  state.people.forEach(p => rows.push([p.name, owed[p.id].toFixed(2),
+    round2(owed[p.id]*(state.trip.rate||0)).toFixed(2), paid[p.id].toFixed(2), round2(paid[p.id]-owed[p.id]).toFixed(2)]));
+  const csv = '﻿' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+  download(new Blob([csv],{type:'text/csv;charset=utf-8'}), (state.trip.name||'trip').replace(/\W+/g,'-').toLowerCase()+'-split.csv');
+}
+function summaryText(){
+  const { owed, paid } = tripTotals();
+  const lines = [`${state.trip.name} - bill split`, `Rate used: EUR 1 = CAD ${(state.trip.rate||0).toFixed(2)}`, ''];
+  state.people.forEach(p => lines.push(`${p.name}: ${eur(owed[p.id])} (${cad(owed[p.id])}), paid ${eur(paid[p.id])}`));
+  const moves = settlements();
+  if(moves.length){
+    lines.push('', 'Settle up:');
+    moves.forEach(m => lines.push(`${person(m.from).name} pays ${person(m.to).name} ${eur(m.amount)} (${cad(m.amount)})`));
+  }
+  return lines.join('\n');
+}
+function copySummary(btn){
+  const txt = summaryText();
+  const done = () => { btn.textContent = 'Copied'; setTimeout(()=>btn.textContent='Copy summary text', 1600); };
+  if(navigator.clipboard && window.isSecureContext){ navigator.clipboard.writeText(txt).then(done, ()=>fallback()); }
+  else fallback();
+  function fallback(){
+    const ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); done(); }catch(e){ alert(txt); }
+    ta.remove();
+  }
+}
+
+/* ---------- boot ---------- */
+render();
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
