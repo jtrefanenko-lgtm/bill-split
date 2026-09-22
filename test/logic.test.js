@@ -97,6 +97,60 @@ check('line count excludes total', parsed.length, 4);
 check('quantity pulled out', { qty: parsed[1].qty, desc: parsed[1].desc }, { qty: 2, desc: 'Birra media' });
 check('trailing notation captured', parsed[2].note, 'J');
 
+console.log('\nreceipt layouts a till actually prints');
+const lay = (...rows) => S.parseReceiptText(rows.join('\n'));
+const shape = out => out.map(l => [l.qty, l.desc, l.amount, l.note || '']);
+
+/* The layout that failed: the item name, then quantity and price below it.
+   The figure that matters is the line total, never the unit price. */
+check('name above, price below', shape(lay(
+  'Coperto', '4 x 3,00        12,00',
+  'Bruschetta', '2 x 8,00        16,00',
+  'TOTALE          28,00'
+)), [[4,'Coperto','12,00',''], [2,'Bruschetta','16,00','']]);
+
+check('one line each still works', shape(lay(
+  'Coperto 3,00', 'Spaghetti vongole 16,00', 'TOTALE 19,00'
+)), [[1,'Coperto','3,00',''], [1,'Spaghetti vongole','16,00','']]);
+
+check('a dotted price column', shape(lay(
+  'COPERTO.....................3,00', 'BRUSCHETTA MISTE............8,00'
+)), [[1,'COPERTO','3,00',''], [1,'BRUSCHETTA MISTE','8,00','']]);
+
+check('a euro sign is not part of the name', shape(lay(
+  'Coperto  \u20ac 3,00', 'Vino della casa  \u20ac 22,00'
+)), [[1,'Coperto','3,00',''], [1,'Vino della casa','22,00','']]);
+
+check('a bare quantity in front', shape(lay(
+  '4 Coperto 12,00', '2 Bruschetta 16,00'
+)), [[4,'Coperto','12,00',''], [2,'Bruschetta','16,00','']]);
+
+check('but a dish named after a number is not a quantity',
+  shape(lay('Pizza 4 formaggi 9,00'))[0][1], 'Pizza 4 formaggi');
+
+/* A VAT class column must never be read as someone's initials, or every
+   line is silently assigned to whoever shares that letter. */
+check('the VAT column is dropped', shape(lay(
+  'COPERTO 3,00 A', 'BRUSCHETTA 8,00 A', 'VINO ROSSO 22,00 B', 'BRANZINO 26,00 A'
+)).map(r => r[3]), ['', '', '', '']);
+
+check('handwritten initials survive', shape(lay(
+  'Branzino 26,00 J', 'Carbonara 14,00 M', 'Vino 22,00 ALL', 'Coperto 6,00'
+)).map(r => r[3]), ['J', 'M', 'ALL', '']);
+
+check('the shop name and address are not items', shape(lay(
+  'TRATTORIA DA MARIO', 'Via Roma 14, Firenze', 'P.IVA 01234567890',
+  'Coperto 3,00', 'Bruschetta 8,00'
+)).map(r => r[1]), ['Coperto', 'Bruschetta']);
+
+check('payment and total lines are left out', lay(
+  'Coperto 3,00', 'TOTALE 3,00', 'CONTANTI 5,00', 'RESTO 2,00', 'Grazie e arrivederci'
+).length, 1);
+
+check('a discount keeps its sign', shape(lay(
+  'Coperto 3,00', 'Sconto -2,50'
+))[1], [1, 'Sconto', '-2,50', '']);
+
 console.log('\ntranslating item names');
 check('single word', S.translateItem('Branzino'), 'Sea bass');
 check('accents ignored', S.translateItem('Caffè'), 'Espresso');

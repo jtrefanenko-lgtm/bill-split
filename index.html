@@ -1505,22 +1505,66 @@ function addLines(r, raw){
 }
 
 /* ---------- plain text parsing ---------- */
+/* Lines a till prints that are not things anyone ate. */
+const SKIP_LINE = /^(totale|total|subtotale|sub-?totale|resto|contanti|carta|bancomat|pagato|pagamento|importo|grazie|arrivederci|scontrino|documento|commerciale|iva|imponibile|servizio incluso|coperti n)\b/i;
+/* Dishes whose name opens with a number, so it is not a quantity. */
+const NUMBER_DISHES = /^(formaggi|stagioni|gusti|salse|sapori)\b/i;
+
 function parseReceiptText(txt){
+  const rows = String(txt).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const out = [];
-  for(let raw of String(txt).split(/\r?\n/)){
-    const line = raw.trim();
-    if(!line) continue;
-    if(/^(totale|total|subtotale|resto|contanti|carta|pagato|grazie|scontrino)\b/i.test(line)) continue;
+  let heldName = '';          // an item whose price is printed on the next line
+
+  for(const line of rows){
+    if(SKIP_LINE.test(line)){ heldName = ''; continue; }
+
+    // "4 x 3,00      12,00" - a quantity line belonging to the name above it.
+    // The figure that matters is the line total on the right, not the unit price.
+    const qtyRow = line.match(/^(\d{1,3})\s*[x×]\s*(-?\d{1,5}[.,]\d{2})\s+(-?\d{1,6}[.,]\d{2})\s*(.*)$/i);
+    if(qtyRow){
+      out.push({ desc: heldName || 'Item', amount: qtyRow[3], qty: parseInt(qtyRow[1], 10), note: (qtyRow[4]||'').trim() });
+      heldName = '';
+      continue;
+    }
+
     const m = line.match(/^(.*?)[\s.]*(-?\d{1,4}[.,]\d{2})\s*(?:€|eur)?\s*(.*)$/i);
-    if(!m) continue;
+    if(!m){
+      // Words with no figure: most likely an item waiting for its price.
+      if(/[a-z]{3}/i.test(line)) heldName = line;
+      continue;
+    }
+
     let desc = m[1].trim(), amount = m[2], trailing = (m[3]||'').trim();
+    desc = desc.replace(/[\s.·•]+$/,'').replace(/\s*(€|eur)\s*$/i,'').trim();
+
     let qty = 1;
-    const q = desc.match(/^(\d{1,2})\s*[x×]\s*(.+)$/i);
-    if(q){ qty = parseInt(q[1],10); desc = q[2].trim(); }
-    if(!desc) desc = 'Item';
+    const times = desc.match(/^(\d{1,3})\s*[x×]\s*(.+)$/i);
+    const bare  = desc.match(/^(\d{1,2})\s+(.+)$/);
+    if(times){ qty = parseInt(times[1], 10); desc = times[2].trim(); }
+    else if(bare && !NUMBER_DISHES.test(bare[2])){ qty = parseInt(bare[1], 10); desc = bare[2].trim(); }
+
+    if(!desc) desc = heldName || 'Item';
+    heldName = '';
     out.push({ desc, amount, qty, note: trailing });
   }
-  return out;
+
+  return dropPrintedColumns(out);
+}
+
+/* A short token printed after nearly every amount is a column the till
+   prints, usually the VAT class, and real receipts mix them: A on food,
+   B on alcohol. Left in the note it reads as someone's initials and
+   assigns the line to them silently, which is the worst way to be wrong.
+   Dropping a genuine notation by mistake only sends the line to the
+   queue, where you tap the name. That is the safer way to be wrong. */
+function dropPrintedColumns(lines){
+  if(lines.length < 3) return lines;
+  const looksLikeClass = t => /^[A-Za-z]{1,2}\d?$/.test(t);
+  const marked = lines.filter(l => l.note && looksLikeClass(l.note));
+  if(marked.length >= 3 && marked.length / lines.length >= 0.75){
+    marked.forEach(l => l.note = '');
+  }
+  return lines;
 }
 
 /* ---------- photo handling ---------- */
@@ -1660,6 +1704,8 @@ Rules:
 - note holds any handwritten mark, initials or letters written beside the line, copied verbatim; otherwise null
 - include coperto, servizio and any discount lines (discounts negative)
 - do not include the grand total, change, payment method or VAT summary as lines
+- where the till prints the item name on one line and its quantity and price on the next, such as "Coperto" then "4 x 3,00   12,00", that is one item: use the name above, the quantity, and the total on the right. Never the unit price
+- a single letter printed after the amount, such as A or B, is the VAT class the till prints on every line. It is not a handwritten mark, so leave note null
 - do not invent lines you cannot read`;
 
 async function readWithClaude(img, r){

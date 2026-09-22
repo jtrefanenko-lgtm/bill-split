@@ -70,6 +70,18 @@ Set one trip rate on the Trip tab and every figure converts at it. When the card
 - Where a figure spans receipts that converted differently, such as a settle-up transfer, the app uses a blended rate weighted by what each receipt cost, and says so.
 - The CSV carries the rate used and its source, receipt by receipt.
 
+## Receipt layouts
+
+Italian tills print in several shapes, and the app reads them all.
+
+- Name and price on one line.
+- Name on one line with `4 x 3,00   12,00` beneath it. This counts as one item, taking the name above and the line total on the right, never the unit price.
+- A dotted or spaced price column.
+- A euro sign before the amount.
+- A quantity in front of the name, while a dish named after a number, like Pizza 4 formaggi, is left alone.
+
+The VAT class letter a till prints after every amount is dropped, so it is never mistaken for someone's initials. A genuine notation written on only some lines survives. Where the two are indistinguishable the app drops it, which sends the line to the queue for you to tap, rather than assigning it to the wrong person quietly.
+
 ## Notation on the paper receipt
 
 The app matches these against each line:
