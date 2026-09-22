@@ -46,7 +46,8 @@ vm.runInContext(`globalThis.__api = {
   round2, eur, cad, parseAmount, matchNotation, suggestShared, parseReceiptText,
   addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned, translateItem,
   tripTotals, settlements, unitList, unitTotals, groupOf, groupMembers, everyoneNow, syncAllFlag,
-  receiptRate, receiptHasActual, receiptGrandEur, blendedRate, hydrate, validateBackup
+  receiptRate, receiptHasActual, receiptGrandEur, blendedRate, hydrate, validateBackup,
+  mergeTrips, later
 };`, sandbox);
 
 const S = sandbox.__api;
@@ -283,6 +284,72 @@ check('the trip details survive', [back.trip.name, back.trip.rate], ['Italy 2025
 const bare = S.hydrate({ people: [{ id: 'z', name: 'Zoe', tag: 'Z' }] });
 check('missing receipts become empty', bare.receipts, []);
 check('a default rate is supplied', typeof bare.trip.rate, 'number');
+
+console.log('\nmerging two phones');
+const T = (d) => '2026-09-2' + d + 'T12:00:00.000Z';
+const trip = (over) => Object.assign({
+  trip: { name: 'Italy 2026', rate: 1.5, updatedAt: T(0) },
+  people: [], groups: [], receipts: [], deleted: {}
+}, over);
+const per = (id, name, at) => ({ id, name, tag: name[0], colour: '#2563EB', updatedAt: at });
+const rec = (id, place, at, lines) => ({ id, place, date: '2026-09-22', payerId: '', extra: '', statedTotal: '',
+  lines: lines || [{ id: id + 'l', desc: 'Vino', amount: 20, assigned: [], all: false }], updatedAt: at });
+
+/* Each phone adds a receipt the other has never seen. Nothing may be lost. */
+const phoneA = trip({ people: [per('p1','Jason',T(1))], receipts: [rec('rA','Osteria',T(2))] });
+const phoneB = trip({ people: [per('p1','Jason',T(1))], receipts: [rec('rB','Bar Centrale',T(3))] });
+const both = S.mergeTrips(phoneA, phoneB);
+check('both receipts survive', both.receipts.map(r => r.place), ['Osteria', 'Bar Centrale']);
+check('the shared person is not duplicated', both.people.length, 1);
+check('merging the other way gives the same set',
+  S.mergeTrips(phoneB, phoneA).receipts.map(r => r.id).sort(), ['rA','rB']);
+
+/* The same receipt edited on both. The later edit wins, as a whole. */
+const mineOld = trip({ receipts: [rec('r1','Osteria',T(1))] });
+const theirsNew = trip({ receipts: [rec('r1','Osteria del Ponte',T(5))] });
+check('later edit of a receipt wins', S.mergeTrips(mineOld, theirsNew).receipts[0].place, 'Osteria del Ponte');
+check('and an older one does not clobber', S.mergeTrips(theirsNew, mineOld).receipts[0].place, 'Osteria del Ponte');
+
+/* A deletion must not be undone by the other phone still holding it. */
+const kept = trip({ receipts: [rec('r1','Osteria',T(1))] });
+const removed = trip({ receipts: [], deleted: { receipts: { r1: T(4) } } });
+check('a deletion sticks', S.mergeTrips(kept, removed).receipts.length, 0);
+check('whichever way round', S.mergeTrips(removed, kept).receipts.length, 0);
+
+/* Unless the receipt was edited again after the deletion. */
+const revived = trip({ receipts: [rec('r1','Osteria',T(6))] });
+check('an edit after the deletion brings it back', S.mergeTrips(revived, removed).receipts.length, 1);
+
+/* Trip settings move as a block, latest wins. */
+const rateA = trip({ trip: { name: 'Italy 2026', rate: 1.47, updatedAt: T(1) } });
+const rateB = trip({ trip: { name: 'Italia', rate: 1.62, updatedAt: T(7) } });
+check('later trip settings win together', [S.mergeTrips(rateA, rateB).trip.name, S.mergeTrips(rateA, rateB).trip.rate], ['Italia', 1.62]);
+check('older settings are left alone', S.mergeTrips(rateB, rateA).trip.rate, 1.62);
+
+/* Two phones handing out the same colour must not collide. */
+const clashA = trip({ people: [per('p1','Jason',T(1))] });
+const clashB = trip({ people: [per('p2','Maria',T(1))] });
+const clashed = S.mergeTrips(clashA, clashB);
+check('two people, two colours', clashed.people.length, 2);
+check('and the colours differ', clashed.people[0].colour !== clashed.people[1].colour, true);
+
+/* A household cannot outlive its members. */
+const withGroup = trip({
+  people: [per('p1','Jason',T(1)), per('p2','Maria',T(1))],
+  groups: [{ id: 'g1', name: 'Jason & Maria', memberIds: ['p1','p2'], updatedAt: T(1) }]
+});
+const lostMaria = trip({ people: [per('p1','Jason',T(1))], deleted: { people: { p2: T(5) } } });
+const after = S.mergeTrips(withGroup, lostMaria);
+check('the removed person is gone', after.people.map(p => p.id), ['p1']);
+check('and the household goes with them', after.groups.length, 0);
+
+/* Merging a phone against itself changes nothing. */
+const self = S.mergeTrips(phoneA, phoneA);
+check('merging with itself is a no-op', [self.people.length, self.receipts.length], [1, 1]);
+
+/* An empty phone simply receives everything. */
+const fresh = S.mergeTrips(trip({}), phoneA);
+check('an empty phone takes the lot', [fresh.people.length, fresh.receipts.length], [1, 1]);
 
 console.log('\ncurrency');
 check('CAD conversion', S.cad(27), 'C$40.50');

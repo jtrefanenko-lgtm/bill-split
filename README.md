@@ -106,6 +106,22 @@ The Trip tab shows which build you are running, stamped with the commit and date
 - Your trip data lives in localStorage and is untouched by an update. Roster, receipts, assignments and the rate all carry over.
 - Offline, the check reports it could not reach the server and the app keeps working from cache.
 
+## Sharing a trip between phones
+
+Send to another phone on the Trip tab hands the whole trip over through AirDrop, a message, or anything else on your share sheet. No server, nothing to fail abroad.
+
+On the receiving phone, open Restore from backup and pick the file.
+
+- An empty phone simply takes the trip.
+- A phone with its own receipts is offered a choice: merge or replace, with both sides counted so you know what you are choosing.
+- Merging keeps everything. Two phones that added different receipts both keep theirs.
+- Where both phones hold the same receipt, the later edit of that receipt wins, as a whole.
+- A receipt deleted on one phone stays deleted, unless the other phone edited it after the deletion.
+- A person removed on one phone is removed, and a household loses them with it.
+- A snapshot is kept before either merge or replace, so it is undoable.
+
+This is a copy, not a live link. Send it again whenever you want the other phone caught up.
+
 ## Where the data lives
 
 The trip is held on the phone, in IndexedDB. Nothing is sent anywhere.

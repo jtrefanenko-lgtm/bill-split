@@ -151,7 +151,7 @@ const SHARED_ITEM_HINTS = ['coperto','servizio','service','mancia','tip','acqua'
 
 let state = blankState();
 let ui = { tab:'trip', receiptId:null, queueLine:null, busy:false, msg:'', err:'',
-           newGroupName:'', newGroupMembers:[], storedIn:'' };
+           newGroupName:'', newGroupMembers:[], storedIn:'', pendingImport:null };
 
 /* ---------- storage ---------- */
 function blankState(){
@@ -225,6 +225,77 @@ function hydrate(obj){
     }
   }));
   return t;
+}
+
+/* ---------- merging two phones' copies ------------------------------
+   Every person, household and receipt carries the time it last changed,
+   and a deletion leaves a dated marker behind. Merging then takes the
+   later edit of each one, so two phones adding different receipts never
+   collide, and only the same receipt edited twice can lose a change.
+--------------------------------------------------------------------- */
+const nowIso = () => new Date().toISOString();
+const later = (a, b) => ((a || '') >= (b || '') ? (a || '') : (b || ''));
+
+function touch(o){ if(o && typeof o === 'object') o.updatedAt = nowIso(); return o; }
+
+function bury(kind, id){
+  if(!state.deleted) state.deleted = {};
+  if(!state.deleted[kind]) state.deleted[kind] = {};
+  state.deleted[kind][id] = nowIso();
+}
+
+function mergeTrips(mine, theirs){
+  const out = hydrate(JSON.parse(JSON.stringify(mine || {})));
+  const them = hydrate(JSON.parse(JSON.stringify(theirs || {})));
+  const KINDS = ['people', 'groups', 'receipts'];
+
+  // Deletions from either side, keeping whichever happened later.
+  const graves = {};
+  for(const kind of KINDS){
+    graves[kind] = Object.assign({}, (out.deleted || {})[kind] || {});
+    const other = (them.deleted || {})[kind] || {};
+    for(const id in other) graves[kind][id] = later(graves[kind][id], other[id]);
+  }
+  out.deleted = graves;
+
+  for(const kind of KINDS){
+    const byId = {}, order = [];
+    const take = item => {
+      if(!item || !item.id) return;
+      if(!(item.id in byId)) order.push(item.id);          // my order first, theirs appended
+      const held = byId[item.id];
+      if(!held || (item.updatedAt || '') > (held.updatedAt || '')) byId[item.id] = item;
+    };
+    out[kind].forEach(take);
+    them[kind].forEach(take);
+
+    out[kind] = order
+      .filter(id => {
+        const stone = graves[kind][id];
+        return !(stone && stone >= (byId[id].updatedAt || ''));   // deleted after its last edit
+      })
+      .map(id => byId[id]);
+  }
+
+  // Trip settings move as one block, since a name and a rate are not
+  // meaningfully mergeable on their own.
+  if((them.trip.updatedAt || '') > (out.trip.updatedAt || '')) out.trip = them.trip;
+  out.lastBackupAt = later(out.lastBackupAt, them.lastBackupAt) || undefined;
+
+  // Two phones may have handed out the same colour. Keep them distinct.
+  const used = [];
+  out.people.forEach(p => {
+    if(!p.colour || used.includes(p.colour)){
+      p.colour = PALETTE.find(c => !used.includes(c)) || PALETTE[used.length % PALETTE.length];
+    }
+    used.push(p.colour);
+  });
+
+  // A household may have lost a member to a deletion on the other phone.
+  const living = out.people.map(p => p.id);
+  out.groups.forEach(g => { g.memberIds = (g.memberIds || []).filter(id => living.includes(id)); });
+  out.groups = out.groups.filter(g => (g.memberIds || []).length > 1);
+  return out;
 }
 
 /* Says why a file is not a trip, or an empty string when it is one. */
@@ -730,6 +801,8 @@ function render(){
   ui.err=''; ui.msg='';
 }
 
+const countOf = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+
 function backupAge(){
   if(!state.lastBackupAt) return null;
   const then = Date.parse(state.lastBackupAt);
@@ -832,12 +905,26 @@ function viewTrip(){
     <div id="updateStatus" class="sub" style="margin-top:8px"></div>
   </div>
 
+  ${ui.pendingImport ? `
+  <div class="card" style="border-color:var(--accent);border-width:2px">
+    <h2>A trip file is ready</h2>
+    <div class="totrow"><span>In the file</span><span>${countOf(ui.pendingImport.people.length,'person','people')} · ${countOf(ui.pendingImport.receipts.length,'receipt','receipts')}</span></div>
+    <div class="totrow"><span>On this phone</span><span>${countOf(state.people.length,'person','people')} · ${countOf(state.receipts.length,'receipt','receipts')}</span></div>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="primary" data-act="doMerge" style="flex:1">Merge them</button>
+      <button data-act="doReplace">Replace</button>
+      <button class="ghost" data-act="cancelImport">Cancel</button>
+    </div>
+    <p class="sub" style="margin-top:8px">Merging keeps both sides, taking the later edit of any receipt they both hold. Replacing throws away what is on this phone. Either way a snapshot is kept first.</p>
+  </div>` : ''}
+
   <div class="card">
     <h2>Your data</h2>
     ${backupAge() !== null && backupAge() >= 3 && state.receipts.length ? `<div class="notice">Last backup was ${backupAge()} days ago. Download one now.</div>` : ''}
     ${backupAge() === null && state.receipts.length ? '<div class="notice">You have never taken a backup. Download one now and put it somewhere off this phone.</div>' : ''}
     <div class="btnrow">
-      <button class="primary" data-act="exportJson">Download backup</button>
+      <button class="primary" data-act="shareTrip">Send to another phone</button>
+      <button data-act="exportJson">Download backup</button>
       <label class="chip" style="padding:11px 14px;border-radius:10px">Restore from backup
         <input type="file" accept="application/json,.json" data-act="importJson" style="display:none"></label>
       <button class="danger" data-act="resetAll">Erase everything</button>
@@ -848,7 +935,8 @@ function viewTrip(){
     <div class="totrow tiny muted">
       <span>Last backup</span><span>${state.lastBackupAt ? esc(state.lastBackupAt.slice(0,10)) : 'never'}</span>
     </div>
-    <p class="sub" style="margin-top:8px">Everything lives on this phone. Clearing website data wipes it, and a lost phone takes the trip with it, so keep a backup in Files or iCloud. Restoring replaces what is here, and a snapshot is kept first so it is undoable.</p>
+    <p class="sub" style="margin-top:8px">Send to another phone hands the trip over by AirDrop, message or any app on your share sheet. On the other phone, open Restore from backup and pick the file, then choose merge or replace.</p>
+    <p class="sub">Everything lives on this phone. Clearing website data wipes it, and a lost phone takes the trip with it, so keep a backup in Files or iCloud. Restoring replaces what is here, and a snapshot is kept first so it is undoable.</p>
   </div>`;
 }
 
@@ -1134,11 +1222,12 @@ document.addEventListener('click', e => {
       if(state.people.some(p=>p.tag.toLowerCase()===tag.toLowerCase())){
         alert('That notation is already taken. Pick something unique, like initials.'); return;
       }
-      state.people.push({ id:uid(), name, tag, colour:PALETTE[state.people.length%PALETTE.length] });
+      state.people.push(touch({ id:uid(), name, tag, colour:PALETTE[state.people.length%PALETTE.length] }));
       save(); render();
     },
     delPerson(){
       if(!confirm('Remove this person? Their assignments are cleared.')) return;
+      bury('people', id);
       state.people = state.people.filter(p=>p.id!==id);
       state.groups.forEach(g => { g.memberIds = g.memberIds.filter(x => x !== id); });
       state.groups = state.groups.filter(g => groupMembers(g).length > 1);
@@ -1150,13 +1239,14 @@ document.addEventListener('click', e => {
       save(); render();
     },
     newReceipt(){
-      const r = { id:uid(), place:'', date:today(), payerId:'', lines:[], extra:'', statedTotal:'', actualCad:'', photo:'' };
+      const r = touch({ id:uid(), place:'', date:today(), payerId:'', lines:[], extra:'', statedTotal:'', actualCad:'', photo:'' });
       state.receipts.push(r); ui.receiptId=r.id; save(); render();
     },
     openReceipt(){ ui.receiptId=id; ui.queueLine=null; render(); },
     backToList(){ ui.receiptId=null; ui.queueLine=null; render(); },
     delReceipt(){
       if(!confirm('Delete this receipt and all its lines?')) return;
+      bury('receipts', id);
       state.receipts = state.receipts.filter(r=>r.id!==id); ui.receiptId=null; save(); render();
     },
     addLine(){
@@ -1213,11 +1303,12 @@ document.addEventListener('click', e => {
       if(members.length < 2) return;
       const name = (ui.newGroupName || '').trim()
         || members.map(x => person(x).name).join(' & ');
-      state.groups.push({ id: uid(), name, memberIds: members });
+      state.groups.push(touch({ id: uid(), name, memberIds: members }));
       ui.newGroupMembers = []; ui.newGroupName = '';
       save(); render();
     },
     delGroup(){
+      bury('groups', id);
       state.groups = state.groups.filter(g => g.id !== id);
       save(); render();
     },
@@ -1253,6 +1344,10 @@ document.addEventListener('click', e => {
       setTimeout(() => { if(!reloading){ reloading = true; location.reload(); } }, 3000);
     },
     checkUpdate(){ checkForUpdate(); },
+    shareTrip(){ shareTrip(); },
+    doMerge(){ if(ui.pendingImport) applyImport(ui.pendingImport, 'merge'); },
+    doReplace(){ if(ui.pendingImport) applyImport(ui.pendingImport, 'replace'); },
+    cancelImport(){ ui.pendingImport = null; render(); },
     exportJson(){
       state.lastBackupAt = new Date().toISOString();
       const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
@@ -1265,7 +1360,11 @@ document.addEventListener('click', e => {
       state = blankState(); ui.receiptId=null; save(); render();
     }
   };
-  if(acts[act]){ e.preventDefault(); acts[act](); }
+  if(acts[act]){
+    e.preventDefault();
+    acts[act]();
+    const r = receipt(id); if(r) touch(r);      // whatever that was, this receipt changed
+  }
 });
 
 /* Typing in a figure that changes other figures has to redraw them, and a
@@ -1300,7 +1399,10 @@ document.addEventListener('input', e => {
     setActualCad(){ if(r) r.actualCad = el.value; }
   };
   if(map[act]){
-    map[act](); save();
+    map[act]();
+    if(r) touch(r);
+    if(['setTripName','setRate'].includes(act)) touch(state.trip);
+    save();
     // These feed other figures on screen, so bring them along.
     if(['setRate','setExtra','setActualCad','setStated'].includes(act)) redrawSoon(el);
   }
@@ -1316,33 +1418,61 @@ document.addEventListener('change', e => {
   }
 });
 
-/* A backup you cannot put back is not a backup. */
+/* Hand the trip to another phone through whatever it uses to share
+   files. No server involved, so nothing here depends on a connection. */
+function tripFilename(){
+  return (state.trip.name || 'trip').replace(/\W+/g,'-').toLowerCase()
+    + '-' + new Date().toISOString().slice(0,10) + '.json';
+}
+async function shareTrip(){
+  const payload = JSON.stringify(state, null, 2);
+  const name = tripFilename();
+  try{
+    const file = new File([payload], name, { type: 'application/json' });
+    if(navigator.canShare && navigator.canShare({ files: [file] })){
+      await navigator.share({ files: [file], title: state.trip.name || 'Bill split' });
+      return;
+    }
+  }catch(e){
+    if(e && e.name === 'AbortError') return;      // they changed their mind
+  }
+  download(new Blob([payload], { type:'application/json' }), name);
+  alert('This phone would not open a share sheet, so the file was saved instead. Send it across however you like, then open it on the other phone with Restore from backup.');
+}
+
+/* A backup you cannot put back is not a backup. Reading a file only
+   offers the choice; nothing changes until merge or replace is tapped. */
 async function restoreBackup(file){
   let text, obj;
   try{ text = await file.text(); }
   catch(e){ alert('That file could not be opened.'); return; }
   try{ obj = JSON.parse(text); }
-  catch(e){ alert('That file is not readable as a backup. It should be the .json file this app downloaded.'); return; }
+  catch(e){ alert('That file is not readable as a trip. It should be the .json file this app produced.'); return; }
 
   const why = validateBackup(obj);
   if(why){ alert(why); return; }
 
   const incoming = hydrate(obj);
-  const ok = confirm(
-    'Replace the trip on this phone with the backup?\n\n' +
-    `In the backup: ${incoming.people.length} people, ${incoming.receipts.length} receipts\n` +
-    `On this phone now: ${state.people.length} people, ${state.receipts.length} receipts\n\n` +
-    'A snapshot of what is here is kept first, so this is undoable.'
-  );
-  if(!ok) return;
+  if(!state.people.length && !state.receipts.length){
+    await applyImport(incoming, 'replace');        // nothing here to weigh it against
+    return;
+  }
+  ui.pendingImport = incoming;
+  ui.tab = 'trip';
+  render();
+}
 
-  try{ await storePut('snap:' + new Date().toISOString() + '-before-restore', state); }catch(e){}
-
-  state = incoming;
+async function applyImport(incoming, how){
+  try{ await storePut('snap:' + new Date().toISOString() + '-before-' + how, state); }catch(e){}
+  const before = { people: state.people.length, receipts: state.receipts.length };
+  state = how === 'merge' ? mergeTrips(state, incoming) : incoming;
+  ui.pendingImport = null;
   ui.receiptId = null; ui.queueLine = null; ui.tab = 'trip';
   ui.newGroupMembers = []; ui.newGroupName = '';
   save(); render();
-  alert(`Restored. ${incoming.people.length} people and ${incoming.receipts.length} receipts are back.`);
+  alert(how === 'merge'
+    ? `Merged. ${before.receipts} receipts here and ${incoming.receipts.length} in the file came to ${state.receipts.length}.`
+    : `Replaced. ${state.people.length} people and ${state.receipts.length} receipts are in place.`);
 }
 
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
