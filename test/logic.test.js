@@ -45,7 +45,7 @@ vm.runInContext(`globalThis.__api = {
   get state(){ return state; }, set state(v){ state = v; },
   round2, eur, cad, parseAmount, matchNotation, suggestShared, parseReceiptText,
   addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned, translateItem,
-  tripTotals, settlements
+  tripTotals, settlements, unitList, unitTotals, groupOf, groupMembers, everyoneNow, syncAllFlag
 };`, sandbox);
 
 const S = sandbox.__api;
@@ -64,7 +64,7 @@ S.state = {
     { id: 'p2', name: 'Maria',  tag: 'M',  colour: '#059669' },
     { id: 'p3', name: 'Tom',    tag: 'TB', colour: '#D97706' }
   ],
-  receipts: [], model: 'claude-opus-5'
+  receipts: [], groups: [], model: 'claude-opus-5'
 };
 
 console.log('\nnotation matching');
@@ -131,8 +131,9 @@ check('lines carry a translation', r1.lines.map(l => l.en), ['Pasta with meat sa
 check('un-notated lines queue up', S.receiptUnassigned(r1), 30);
 check('shared item is suggested', S.suggestShared('Coperto'), true);
 
-r1.lines[2].assigned = 'ALL';   // the wine, tapped Everyone
-r1.lines[3].assigned = 'ALL';   // coperto, tapped Everyone
+r1.lines[2].assigned = S.everyoneNow();   // the wine, tapped Everyone
+r1.lines[3].assigned = S.everyoneNow();   // coperto, tapped Everyone
+r1.lines.forEach(l => S.syncAllFlag(l));
 check('nothing left unassigned', S.receiptUnassigned(r1), 0);
 const sh1 = S.receiptShares(r1);
 check('shares split evenly where shared', sh1, { p1: 24, p2: 36, p3: 10 });
@@ -153,7 +154,7 @@ S.addLines(odd, [
   { desc: 'Gelato', amount: 0.01, qty: 1, note: '' },    // one cent, three ways
   { desc: 'Sconto', amount: -5, qty: 1, note: '' }       // discount, three ways
 ]);
-odd.lines.forEach(l => l.assigned = 'ALL');
+odd.lines.forEach(l => { l.assigned = S.everyoneNow(); S.syncAllFlag(l); });
 const oddShares = S.receiptShares(odd);
 check('three-way split adds back exactly', S.round2(Object.values(oddShares).reduce((a, b) => a + b, 0)), 5.01);
 check('odd cents spread, not dumped on one person', Object.values(oddShares).map(v => S.round2(v)).sort(), [1.66, 1.67, 1.68]);
@@ -169,7 +170,8 @@ check('claude translation wins over the glossary', (() => {
   S.addLines(t, [{ desc: 'Tagliata di manzo', en: 'Sliced beef steak', amount: 24, qty: 1, note: '' }]);
   return t.lines[0].en;
 })(), 'Sliced beef steak');
-check('shared marker inside description', r2.lines[0].assigned, 'ALL');
+check('shared marker inside description', r2.lines[0].assigned, ['p1','p2','p3']);
+check('and reads back as everyone', r2.lines[0].all, true);
 const t = S.tripTotals();
 check('owed per person', t.owed, { p1: 27, p2: 39, p3: 13 });
 check('paid per person', t.paid, { p1: 70, p2: 9, p3: 0 });
@@ -177,6 +179,79 @@ const moves = S.settlements();
 check('two transfers clear it', moves.length, 2);
 check('every transfer nets out', S.round2(moves.reduce((s, m) => s + m.amount, 0)), 43);
 check('nobody pays more than they owe', moves.every(m => m.amount > 0), true);
+
+console.log('\ncouples and households');
+/* Four travellers, two couples. Jason and Maria settle together; Tom and
+   Sara settle together. */
+S.state = {
+  trip: { name: 'Italy 2026', rate: 1.5 },
+  people: [
+    { id: 'p1', name: 'Jason', tag: 'J',  colour: '#2563EB' },
+    { id: 'p2', name: 'Maria', tag: 'M',  colour: '#059669' },
+    { id: 'p3', name: 'Tom',   tag: 'TB', colour: '#D97706' },
+    { id: 'p4', name: 'Sara',  tag: 'S',  colour: '#DC2626' }
+  ],
+  groups: [
+    { id: 'g1', name: 'Jason & Maria', memberIds: ['p1','p2'] },
+    { id: 'g2', name: 'Tom & Sara',    memberIds: ['p3','p4'] }
+  ],
+  receipts: [], model: 'claude-opus-5'
+};
+
+check('a person knows their household', S.groupOf('p2').name, 'Jason & Maria');
+check('an ungrouped person has none', S.groupOf('nobody'), null);
+check('four people settle as two units', S.unitList().map(u => u.name), ['Jason & Maria', 'Tom & Sara']);
+check('each unit holds its members', S.unitList().map(u => u.memberIds), [['p1','p2'], ['p3','p4']]);
+
+/* Jason pays the whole dinner. Each person ate their own main, the wine
+   was shared four ways. */
+const rc = { id: 'rc', place: 'Osteria', date: '2026-09-22', payerId: 'p1', lines: [], extra: '', statedTotal: '' };
+S.state.receipts.push(rc);
+S.addLines(rc, [
+  { desc: 'Branzino',  amount: 26, qty: 1, note: 'J' },
+  { desc: 'Carbonara', amount: 14, qty: 1, note: 'M' },
+  { desc: 'Bistecca',  amount: 30, qty: 1, note: 'TB' },
+  { desc: 'Risotto',   amount: 18, qty: 1, note: 'S' },
+  { desc: 'Vino ALL',  amount: 40, qty: 1, note: '' }
+]);
+const t2 = S.tripTotals();
+check('individual detail is kept', t2.owed, { p1: 36, p2: 24, p3: 40, p4: 28 });
+
+const ut = S.unitTotals();
+check('household owes the sum of its members', ut.map(u => u.owed), [60, 68]);
+check('the paying partner credits the household', ut.map(u => u.paid), [128, 0]);
+
+const m2 = S.settlements();
+check('one transfer between the two couples', m2.length, 1);
+check('the other couple pays as one', { from: m2[0].fromName, to: m2[0].toName, amount: m2[0].amount },
+  { from: 'Tom & Sara', to: 'Jason & Maria', amount: 68 });
+
+/* The case that prompted this: Maria pays, not Jason. The other couple
+   owes exactly the same, since the household is one balance. */
+rc.payerId = 'p2';
+const m3 = S.settlements();
+check('either partner paying gives the same result', { from: m3[0].fromName, to: m3[0].toName, amount: m3[0].amount },
+  { from: 'Tom & Sara', to: 'Jason & Maria', amount: 68 });
+
+/* Nothing moves inside a household. */
+rc.payerId = 'p1';
+check('no transfer between partners', S.settlements().every(m => m.from !== m.to), true);
+check('couples never owe themselves', S.settlements().length, 1);
+
+/* Everyone is a snapshot, not a standing rule. */
+check('everyone marks the whole roster', rc.lines[4].assigned, ['p1','p2','p3','p4']);
+check('and flags as everyone', rc.lines[4].all, true);
+
+/* A lone traveller settles on their own alongside the couples. */
+S.state.people.push({ id: 'p5', name: 'Elena', tag: 'E', colour: '#7C3AED' });
+S.addLines(rc, [{ desc: 'Tiramisu', amount: 9, qty: 1, note: 'E' }]);
+check('a later arrival does not join past shared lines', S.receiptShares(rc)['p5'], 9);
+check('the wine stays split four ways', rc.lines[4].assigned.length, 4);
+check('ungrouped person is their own unit', S.unitList().map(u => u.name), ['Jason & Maria', 'Tom & Sara', 'Elena']);
+check('and owes on their own', S.unitTotals().find(u => u.name === 'Elena').owed, 9);
+const m4 = S.settlements();
+check('two transfers now', m4.length, 2);
+check('every euro paid comes back', S.round2(m4.reduce((a, m) => a + m.amount, 0)), 77);
 
 console.log('\ncurrency');
 check('CAD conversion', S.cad(27), 'C$40.50');

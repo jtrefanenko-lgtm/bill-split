@@ -11,6 +11,17 @@ Everything stays in your browser. No server, no account, no data leaving your ph
 3. Set the euro to Canadian dollar rate. Every total shows in both currencies.
 4. Optional: paste an Anthropic API key so photos are read by Claude.
 
+## Couples and households
+
+Travelling as couples? Put people who settle together into a household on the Trip tab.
+
+- Lines are still assigned to whoever ordered them, so you keep the detail of who ate what.
+- A couple chip appears in the assignment queue. One tap puts a shared line on both partners.
+- The Who owes tab totals by household, with each person's share shown beneath.
+- Whichever partner pays a bill, the household is credited. The other couple owes the household, not the individual.
+- Anyone not in a household settles on their own, alongside the couples.
+- A household holds any number of people, so a family works the same way.
+
 ## Using it at the table
 
 - **Receipts tab**, add a receipt, set the place and who paid.
@@ -57,6 +68,7 @@ Anything else comes up in the queue for you to assign.
 ## Splitting and settling
 
 - A line split between two people splits evenly.
+- Everyone means everyone on the trip at the moment you tapped it. Adding a traveller later leaves earlier shared lines alone.
 - Odd cents are handed out one at a time, rotating between people, so every receipt adds back to the exact total. Nothing is lost to rounding.
 - Discounts go in as negative amounts and are shared the same way.
 - The **Who owes** tab nets what each person paid against what they owe, then lists the fewest transfers that clear every balance.

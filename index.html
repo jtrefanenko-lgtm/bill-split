@@ -150,13 +150,15 @@ const SHARED_WORDS = ['all','tutti','tutto','everyone','shared','share','table',
 const SHARED_ITEM_HINTS = ['coperto','servizio','service','mancia','tip','acqua','vino','bottiglia','pane','antipast','iva','tax','caraffa','birra grande'];
 
 let state = load();
-let ui = { tab:'trip', receiptId:null, queueLine:null, busy:false, msg:'', err:'' };
+let ui = { tab:'trip', receiptId:null, queueLine:null, busy:false, msg:'', err:'',
+           newGroupName:'', newGroupMembers:[] };
 
 /* ---------- storage ---------- */
 function blankState(){
   return {
     trip:{ name:'Italy 2026', rate:1.47 },
     people:[],
+    groups:[],
     receipts:[],
     model:'claude-opus-5'
   };
@@ -165,7 +167,18 @@ function load(){
   try{
     const raw = localStorage.getItem(STORE_KEY);
     if(!raw) return blankState();
-    return Object.assign(blankState(), JSON.parse(raw));
+    const loaded = Object.assign(blankState(), JSON.parse(raw));
+    // Older saves stored the sentinel 'ALL'. Freeze it to the roster as it
+    // stands now, which is the roster it was tapped against.
+    const everyone = loaded.people.map(p => p.id);
+    (loaded.receipts || []).forEach(r => (r.lines || []).forEach(l => {
+      if(l.assigned === 'ALL'){ l.assigned = everyone.slice(); l.all = true; }
+      if(l.all === undefined){
+        const ids = Array.isArray(l.assigned) ? l.assigned : [];
+        l.all = everyone.length > 0 && everyone.every(id => ids.includes(id));
+      }
+    }));
+    return loaded;
   }catch(e){ return blankState(); }
 }
 function save(){
@@ -183,6 +196,42 @@ const cad = n => 'C$' + round2((Number(n)||0)*(Number(state.trip.rate)||0)).toFi
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const person = id => state.people.find(p=>p.id===id);
 const receipt = id => state.receipts.find(r=>r.id===id);
+const group  = id => state.groups.find(g=>g.id===id);
+
+/* Couples and households -------------------------------------------
+   Lines are still assigned to individuals. A household is who settles
+   together, so a bill paid by one partner is owed back by the other
+   household as a whole, not by each person separately.
+-------------------------------------------------------------------- */
+function groupOf(personId){
+  return state.groups.find(g => g.memberIds.includes(personId)) || null;
+}
+function groupMembers(g){
+  return (g ? g.memberIds : []).filter(id => person(id));
+}
+function unitKey(personId){
+  const g = groupOf(personId);
+  return g ? 'g:' + g.id : 'p:' + personId;
+}
+/* One entry per settling unit, in roster order. */
+function unitList(){
+  const seen = [], out = [];
+  for(const p of state.people){
+    const key = unitKey(p.id);
+    if(seen.includes(key)) continue;
+    seen.push(key);
+    const g = groupOf(p.id);
+    const members = g ? groupMembers(g) : [p.id];
+    out.push({
+      key,
+      name: g ? g.name : p.name,
+      colour: (person(members[0]) || p).colour,
+      memberIds: members,
+      isGroup: !!g
+    });
+  }
+  return out;
+}
 function parseAmount(v){
   if(typeof v === 'number') return v;
   let s = String(v||'').replace(/[^\d,.\-]/g,'');
@@ -411,9 +460,17 @@ function suggestShared(desc){
 
 /* ---------- money maths ---------- */
 function lineOwners(line){
-  if(line.assigned === 'ALL') return state.people.map(p=>p.id);
+  if(line.assigned === 'ALL') return state.people.map(p=>p.id);   // pre-snapshot data
   if(Array.isArray(line.assigned)) return line.assigned.filter(id=>person(id));
   return [];
+}
+
+/* Everyone means everyone who was on the trip when you tapped it. Adding
+   a traveller later must not quietly re-split last Tuesday's dinner. */
+function everyoneNow(){ return state.people.map(p => p.id); }
+function syncAllFlag(line){
+  const ids = Array.isArray(line.assigned) ? line.assigned : [];
+  line.all = state.people.length > 0 && state.people.every(p => ids.includes(p.id));
 }
 function receiptLinesTotal(r){ return round2(r.lines.reduce((s,l)=>s+(Number(l.amount)||0),0)); }
 function receiptUnassigned(r){ return round2(r.lines.filter(l=>lineOwners(l).length===0).reduce((s,l)=>s+(Number(l.amount)||0),0)); }
@@ -484,16 +541,30 @@ function tripTotals(){
   state.people.forEach(p => { owed[p.id]=round2(owed[p.id]); paid[p.id]=round2(paid[p.id]); });
   return { owed, paid };
 }
-function settlements(){
+/* Each unit's owed and paid, summed from its members. */
+function unitTotals(){
   const { owed, paid } = tripTotals();
-  const bal = state.people.map(p => ({ id:p.id, net: round2(paid[p.id]-owed[p.id]) }));
+  return unitList().map(u => Object.assign({}, u, {
+    owed: round2(u.memberIds.reduce((s,id) => s + (owed[id]||0), 0)),
+    paid: round2(u.memberIds.reduce((s,id) => s + (paid[id]||0), 0))
+  }));
+}
+
+function settlements(){
+  const units = unitTotals();
+  const byKey = {};
+  units.forEach(u => byKey[u.key] = u.name);
+  const bal = units.map(u => ({ id:u.key, net: round2(u.paid - u.owed) }));
   const cred = bal.filter(b=>b.net>0.009).sort((a,b)=>b.net-a.net);
   const debt = bal.filter(b=>b.net<-0.009).sort((a,b)=>a.net-b.net);
   const moves = [];
   let i=0, j=0;
   while(i<debt.length && j<cred.length){
     const amt = round2(Math.min(-debt[i].net, cred[j].net));
-    if(amt > 0.009) moves.push({ from:debt[i].id, to:cred[j].id, amount:amt });
+    if(amt > 0.009) moves.push({
+      from: debt[i].id, to: cred[j].id, amount: amt,
+      fromName: byKey[debt[i].id], toName: byKey[cred[j].id]
+    });
     debt[i].net = round2(debt[i].net + amt);
     cred[j].net = round2(cred[j].net - amt);
     if(Math.abs(debt[i].net) < 0.01) i++;
@@ -517,12 +588,18 @@ function render(){
   ui.err=''; ui.msg='';
 }
 
+function defaultGroupName(){
+  const names = ui.newGroupMembers.map(id => person(id)).filter(Boolean).map(p => p.name);
+  return names.length ? names.join(' & ') : '';
+}
+
 function viewTrip(){
   const people = state.people.map((p,i)=>`
     <div class="item">
       <span class="dot" style="width:14px;height:14px;border-radius:50%;background:${p.colour};margin-top:5px;flex:none"></span>
       <div class="grow">
         <div><strong>${esc(p.name)}</strong> <span class="muted small">notation: ${esc(p.tag)}</span></div>
+        ${groupOf(p.id) ? `<div class="tiny muted">settles with ${esc(groupOf(p.id).name)}</div>` : ''}
       </div>
       <button class="ghost danger" data-act="delPerson" data-id="${p.id}">Remove</button>
     </div>`).join('') || '<p class="muted small">Nobody yet. Add everyone before the first dinner.</p>';
@@ -537,6 +614,39 @@ function viewTrip(){
       <div style="flex:1 1 90px"><label for="pTag">Notation</label><input id="pTag" placeholder="J" maxlength="6"></div>
     </div>
     <button class="primary wide" data-act="addPerson" style="margin-top:8px">Add person</button>
+  </div>
+
+  <div class="card">
+    <h2>Couples and households</h2>
+    <p class="sub">People who settle as one. Lines are still assigned to whoever ordered them, so you keep the detail, but a bill one partner pays is owed back by the other household as a whole.</p>
+    ${state.groups.map(g => {
+      const members = groupMembers(g);
+      return `<div class="item">
+        <div class="grow">
+          <div><strong>${esc(g.name)}</strong></div>
+          <div class="tiny muted">${members.map(id => esc(person(id).name)).join(' · ') || 'no members'}</div>
+        </div>
+        <button class="ghost danger" data-act="delGroup" data-id="${g.id}">Remove</button>
+      </div>`;
+    }).join('') || '<p class="muted small">No households yet. Everyone settles on their own.</p>'}
+
+    ${state.people.length >= 2 ? `
+      <div style="margin-top:12px">
+        <label>Who settles together</label>
+        <div class="chips">
+          ${state.people.map(p => {
+            const on = ui.newGroupMembers.includes(p.id);
+            const taken = !!groupOf(p.id);
+            return `<button class="chip${on?' on':''}" style="${on?`background:${p.colour}`:''}${taken?';opacity:.45':''}"
+              data-act="toggleGroupMember" data-id="${p.id}"${taken?' disabled':''}>
+              <span class="dot" style="background:${on?'#fff':p.colour}"></span>${esc(p.name)}</button>`;
+          }).join('')}
+        </div>
+        <div class="field" style="margin-top:10px"><label for="gName">Name (optional)</label>
+          <input id="gName" placeholder="${esc(defaultGroupName() || 'Jason & Sarah')}" value="${esc(ui.newGroupName)}" data-act="setGroupName"></div>
+        <button class="primary wide" data-act="addGroup"${ui.newGroupMembers.length < 2 ? ' disabled' : ''}>
+          ${ui.newGroupMembers.length < 2 ? 'Pick two or more people' : 'Create household'}</button>
+      </div>` : '<p class="sub" style="margin-top:10px">Add at least two people first.</p>'}
   </div>
 
   <div class="card">
@@ -712,8 +822,8 @@ function currentQueueLine(r, unassigned){
 function queueCard(r, unassigned){
   const l = currentQueueLine(r, unassigned);
   if(!l) return '';
-  const picked = Array.isArray(l.assigned) ? l.assigned : [];
-  const isAll = l.assigned === 'ALL';
+  const picked = lineOwners(l);
+  const isAll = !!l.all;
   const hint = suggestShared(l.desc);
   const chosen = isAll ? state.people.length : picked.length;
   const each = chosen ? round2((Number(l.amount)||0)/chosen) : 0;
@@ -733,6 +843,15 @@ function queueCard(r, unassigned){
         return `<button class="chip${on?' on':''}" style="${on?`background:${p.colour}`:''}" data-act="assignOne" data-line="${l.id}" data-id="${r.id}" data-person="${p.id}"><span class="dot" style="background:${on?'#fff':p.colour}"></span>${esc(p.name)}</button>`;
       }).join('')}
     </div>
+    ${state.groups.filter(g => groupMembers(g).length > 1).length ? `
+    <div class="chips" style="margin-top:8px">
+      ${state.groups.filter(g => groupMembers(g).length > 1).map(g => {
+        const ids = groupMembers(g);
+        const colour = person(ids[0]).colour;
+        const on = !isAll && ids.every(id => picked.includes(id));
+        return `<button class="chip${on?' on':''}" style="${on?`background:${colour}`:''}" data-act="assignGroup" data-line="${l.id}" data-id="${r.id}" data-group="${g.id}"><span class="dot" style="background:${on?'#fff':colour}"></span>${esc(g.name)}</button>`;
+      }).join('')}
+    </div>` : ''}
     <div class="btnrow" style="margin-top:10px">
       <button class="${chosen?'':'primary '}" data-act="assignAll" data-line="${l.id}" data-id="${r.id}" style="flex:1">${hint&&!chosen?'Everyone (likely)':'Everyone'}</button>
       ${chosen
@@ -746,7 +865,7 @@ function queueCard(r, unassigned){
 
 function lineRow(r,l){
   const owners = lineOwners(l);
-  const tags = l.assigned==='ALL'
+  const tags = l.all
     ? '<span class="tag plain">Everyone</span>'
     : owners.map(id=>{ const p=person(id); return p?`<span class="tag" style="background:${p.colour}">${esc(p.tag)}</span>`:''; }).join('');
   return `
@@ -769,6 +888,8 @@ function lineRow(r,l){
 function viewSummary(){
   if(!state.people.length) return '<div class="card"><p class="muted">Add people on the Trip tab first.</p></div>';
   const { owed, paid } = tripTotals();
+  const units = unitTotals();
+  const anyGroups = units.some(u => u.isGroup);
   const moves = settlements();
   const grand = round2(Object.values(owed).reduce((a,b)=>a+b,0));
   const unassignedTotal = round2(state.receipts.reduce((s,r)=>s+receiptUnassigned(r),0));
@@ -776,33 +897,38 @@ function viewSummary(){
   return `
   ${unassignedTotal>0?`<div class="notice">${eur(unassignedTotal)} across your receipts has no owner yet and is not in these figures.</div>`:''}
   <div class="card">
-    <h2>What each person owes</h2>
-    ${state.people.map(p=>`
+    <h2>What each ${anyGroups ? 'household' : 'person'} owes</h2>
+    ${units.map(u => `
       <div class="totrow">
-        <span><span class="tag" style="background:${p.colour}">${esc(p.tag)}</span> ${esc(p.name)}</span>
-        <span>${eur(owed[p.id])} <span class="tiny muted">${cad(owed[p.id])}</span></span>
-      </div>`).join('')}
+        <span><span class="tag" style="background:${u.colour}">${esc(u.isGroup ? '2+' : person(u.memberIds[0]).tag)}</span> ${esc(u.name)}</span>
+        <span>${eur(u.owed)} <span class="tiny muted">${cad(u.owed)}</span></span>
+      </div>
+      ${u.isGroup ? u.memberIds.map(id => `
+        <div class="totrow tiny muted" style="padding:2px 0 2px 14px">
+          <span>${esc(person(id).name)}</span><span>${eur(owed[id])}</span>
+        </div>`).join('') : ''}`).join('')}
     <div class="totrow big"><span>Trip total</span><span>${eur(grand)} <span class="tiny muted">${cad(grand)}</span></span></div>
   </div>
 
   <div class="card">
     <h2>Paid versus owed</h2>
-    ${state.people.map(p=>{
-      const net = round2(paid[p.id]-owed[p.id]);
+    ${units.map(u => {
+      const net = round2(u.paid - u.owed);
       const colour = net>0.009?'var(--ok)':(net<-0.009?'var(--danger)':'var(--muted)');
       const word = net>0.009?'is owed':(net<-0.009?'owes':'settled');
-      return `<div class="totrow"><span>${esc(p.name)} <span class="tiny muted">paid ${eur(paid[p.id])}</span></span>
+      return `<div class="totrow"><span>${esc(u.name)} <span class="tiny muted">paid ${eur(u.paid)}</span></span>
         <span style="color:${colour}">${word} ${net===0?'':eur(Math.abs(net))}</span></div>`;
     }).join('')}
+    ${anyGroups ? '<p class="sub" style="margin-top:10px">A household is one balance. Whichever partner paid, the household is credited.</p>' : ''}
   </div>
 
   <div class="card">
     <h2>Settle up</h2>
     ${moves.length ? moves.map(m=>`
-      <div class="totrow"><span><strong>${esc(person(m.from).name)}</strong> pays <strong>${esc(person(m.to).name)}</strong></span>
+      <div class="totrow"><span><strong>${esc(m.fromName)}</strong> pays <strong>${esc(m.toName)}</strong></span>
       <span>${eur(m.amount)} <span class="tiny muted">${cad(m.amount)}</span></span></div>`).join('')
       : '<p class="muted small">Nobody owes anybody. Set a payer on each receipt to see transfers.</p>'}
-    <p class="sub" style="margin-top:10px">Fewest transfers that clear every balance.</p>
+    <p class="sub" style="margin-top:10px">Fewest transfers that clear every balance${anyGroups ? ', settled household to household' : ''}.</p>
   </div>
 
   <div class="card">
@@ -835,6 +961,9 @@ document.addEventListener('click', e => {
     delPerson(){
       if(!confirm('Remove this person? Their assignments are cleared.')) return;
       state.people = state.people.filter(p=>p.id!==id);
+      state.groups.forEach(g => { g.memberIds = g.memberIds.filter(x => x !== id); });
+      state.groups = state.groups.filter(g => groupMembers(g).length > 1);
+      ui.newGroupMembers = ui.newGroupMembers.filter(x => x !== id);
       state.receipts.forEach(r=>{
         if(r.payerId===id) r.payerId='';
         r.lines.forEach(l=>{ if(Array.isArray(l.assigned)) l.assigned = l.assigned.filter(x=>x!==id); });
@@ -866,7 +995,7 @@ document.addEventListener('click', e => {
     clearLine(){
       const r = receipt(id); if(!r) return;
       const l = r.lines.find(x=>x.id===el.dataset.line);
-      if(l){ l.assigned=[]; l.why=''; ui.queueLine=l.id; } save(); render();
+      if(l){ l.assigned=[]; l.all=false; l.why=''; ui.queueLine=l.id; } save(); render();
     },
     assignOne(){
       const r = receipt(id); if(!r) return;
@@ -875,13 +1004,48 @@ document.addEventListener('click', e => {
       const pid = el.dataset.person;
       l.assigned = l.assigned.includes(pid) ? l.assigned.filter(x=>x!==pid) : l.assigned.concat(pid);
       l.why = 'you chose';
+      syncAllFlag(l);
       ui.queueLine = l.id;          // hold this line so you can add more people
+      save(); render();
+    },
+    assignGroup(){
+      const r = receipt(id); if(!r) return;
+      const l = r.lines.find(x=>x.id===el.dataset.line); if(!l) return;
+      const ids = groupMembers(group(el.dataset.group));
+      if(!ids.length) return;
+      const picked = Array.isArray(l.assigned) ? l.assigned.slice() : [];
+      const alreadyAll = ids.every(x => picked.includes(x));
+      l.assigned = alreadyAll
+        ? picked.filter(x => !ids.includes(x))                       // tap again to clear
+        : picked.concat(ids.filter(x => !picked.includes(x)));
+      l.why = 'you chose';
+      syncAllFlag(l);
+      ui.queueLine = l.id;
+      save(); render();
+    },
+    toggleGroupMember(){
+      ui.newGroupMembers = ui.newGroupMembers.includes(id)
+        ? ui.newGroupMembers.filter(x => x !== id)
+        : ui.newGroupMembers.concat(id);
+      render();
+    },
+    addGroup(){
+      const members = ui.newGroupMembers.filter(x => person(x) && !groupOf(x));
+      if(members.length < 2) return;
+      const name = (ui.newGroupName || '').trim()
+        || members.map(x => person(x).name).join(' & ');
+      state.groups.push({ id: uid(), name, memberIds: members });
+      ui.newGroupMembers = []; ui.newGroupName = '';
+      save(); render();
+    },
+    delGroup(){
+      state.groups = state.groups.filter(g => g.id !== id);
       save(); render();
     },
     assignAll(){
       const r = receipt(id); if(!r) return;
       const l = r.lines.find(x=>x.id===el.dataset.line); if(!l) return;
-      l.assigned = 'ALL'; l.why = 'everyone';
+      l.assigned = everyoneNow(); l.why = 'everyone'; syncAllFlag(l);
       ui.queueLine = null;          // unambiguous, so move straight on
       save(); render();
     },
@@ -930,6 +1094,7 @@ document.addEventListener('input', e => {
     setRate(){ state.trip.rate = parseAmount(el.value); document.getElementById('rateBadge').innerHTML = `€1 = C$${(Number(state.trip.rate)||0).toFixed(2)}`; },
     setKey(){ setKey(el.value.trim()); return; },
     setModel(){ state.model = el.value; },
+    setGroupName(){ ui.newGroupName = el.value; return; },
     setPlace(){ if(r) r.place = el.value; },
     setDate(){ if(r) r.date = el.value; },
     setPayer(){ if(r) r.payerId = el.value; },
@@ -964,7 +1129,11 @@ function addLines(r, raw){
     };
     if(line.en.toLowerCase() === desc.toLowerCase()) line.en = '';
     const m = matchNotation(line.desc + ' ' + line.note);
-    if(m){ line.assigned = m.ids; line.why = m.why; }
+    if(m){
+      line.assigned = m.ids === 'ALL' ? everyoneNow() : m.ids;
+      line.why = m.why;
+    }
+    syncAllFlag(line);
     r.lines.push(line);
   }
 }
@@ -1116,35 +1285,44 @@ function download(blob, filename){
 }
 function csvCell(v){ return '"' + String(v==null?'':v).replace(/"/g,'""') + '"'; }
 function exportCsv(){
-  const rows = [['Date','Place','Item','Item in English','Qty','Amount EUR','Amount CAD','Assigned to','Per person EUR','Note','Payer']];
+  const rows = [['Date','Place','Item','Item in English','Qty','Amount EUR','Amount CAD','Assigned to','Per person EUR','Note','Payer','Payer household']];
   for(const r of state.receipts){
     for(const l of r.lines){
       const owners = lineOwners(l);
-      const names = l.assigned==='ALL' ? 'Everyone' : owners.map(id=>person(id).name).join(' + ');
+      const names = l.all ? 'Everyone' : owners.map(id=>person(id).name).join(' + ');
       const each = owners.length ? round2(l.amount/owners.length) : 0;
       rows.push([r.date, r.place, l.desc, l.en||'', l.qty, round2(l.amount).toFixed(2),
         round2(l.amount*(state.trip.rate||0)).toFixed(2), names || 'UNASSIGNED',
-        each.toFixed(2), l.note||'', r.payerId?person(r.payerId).name:'']);
+        each.toFixed(2), l.note||'', r.payerId?person(r.payerId).name:'',
+        r.payerId && groupOf(r.payerId) ? groupOf(r.payerId).name : '']);
     }
     if(parseAmount(r.extra)) rows.push([r.date, r.place, 'Tip or rounding', '', 1, round2(parseAmount(r.extra)).toFixed(2),
-      round2(parseAmount(r.extra)*(state.trip.rate||0)).toFixed(2), 'Split by share','', '', r.payerId?person(r.payerId).name:'']);
+      round2(parseAmount(r.extra)*(state.trip.rate||0)).toFixed(2), 'Split by share','', '', r.payerId?person(r.payerId).name:'',
+      r.payerId && groupOf(r.payerId) ? groupOf(r.payerId).name : '']);
   }
   rows.push([]);
   const { owed, paid } = tripTotals();
-  rows.push(['Person','Owes EUR','Owes CAD','Paid EUR','Net EUR']);
-  state.people.forEach(p => rows.push([p.name, owed[p.id].toFixed(2),
+  rows.push(['Person','Household','Owes EUR','Owes CAD','Paid EUR','Net EUR']);
+  state.people.forEach(p => rows.push([p.name, groupOf(p.id)?groupOf(p.id).name:'', owed[p.id].toFixed(2),
     round2(owed[p.id]*(state.trip.rate||0)).toFixed(2), paid[p.id].toFixed(2), round2(paid[p.id]-owed[p.id]).toFixed(2)]));
+  rows.push([]);
+  rows.push(['Settles as','Owes EUR','Owes CAD','Paid EUR','Net EUR']);
+  unitTotals().forEach(u => rows.push([u.name, u.owed.toFixed(2),
+    round2(u.owed*(state.trip.rate||0)).toFixed(2), u.paid.toFixed(2), round2(u.paid-u.owed).toFixed(2)]));
   const csv = '﻿' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
   download(new Blob([csv],{type:'text/csv;charset=utf-8'}), (state.trip.name||'trip').replace(/\W+/g,'-').toLowerCase()+'-split.csv');
 }
 function summaryText(){
   const { owed, paid } = tripTotals();
   const lines = [`${state.trip.name} - bill split`, `Rate used: EUR 1 = CAD ${(state.trip.rate||0).toFixed(2)}`, ''];
-  state.people.forEach(p => lines.push(`${p.name}: ${eur(owed[p.id])} (${cad(owed[p.id])}), paid ${eur(paid[p.id])}`));
+  unitTotals().forEach(u => {
+    lines.push(`${u.name}: ${eur(u.owed)} (${cad(u.owed)}), paid ${eur(u.paid)}`);
+    if(u.isGroup) u.memberIds.forEach(id => lines.push(`   ${person(id).name}: ${eur(owed[id])}`));
+  });
   const moves = settlements();
   if(moves.length){
     lines.push('', 'Settle up:');
-    moves.forEach(m => lines.push(`${person(m.from).name} pays ${person(m.to).name} ${eur(m.amount)} (${cad(m.amount)})`));
+    moves.forEach(m => lines.push(`${m.fromName} pays ${m.toName} ${eur(m.amount)} (${cad(m.amount)})`));
   }
   return lines.join('\n');
 }
