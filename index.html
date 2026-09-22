@@ -149,9 +149,9 @@ const PALETTE = ['#2563EB','#059669','#D97706','#DC2626','#7C3AED','#0891B2','#D
 const SHARED_WORDS = ['all','tutti','tutto','everyone','shared','share','table','tavolo','*'];
 const SHARED_ITEM_HINTS = ['coperto','servizio','service','mancia','tip','acqua','vino','bottiglia','pane','antipast','iva','tax','caraffa','birra grande'];
 
-let state = load();
+let state = blankState();
 let ui = { tab:'trip', receiptId:null, queueLine:null, busy:false, msg:'', err:'',
-           newGroupName:'', newGroupMembers:[] };
+           newGroupName:'', newGroupMembers:[], storedIn:'' };
 
 /* ---------- storage ---------- */
 function blankState(){
@@ -163,35 +163,128 @@ function blankState(){
     model:'claude-opus-5'
   };
 }
-function load(){
+/* ---------- where the trip is kept ----------------------------------
+   IndexedDB holds it, with room measured in hundreds of megabytes rather
+   than the five or so localStorage allows. localStorage stays as the
+   fallback for a private window, and as the place older trips are read
+   from once. Snapshots keep a short history so a bad edit is recoverable.
+--------------------------------------------------------------------- */
+const DB_NAME = 'italy-bill-split', DB_STORE = 'trip', CURRENT_KEY = 'current';
+const SNAP_KEEP = 20, SNAP_EVERY_MS = 10 * 60 * 1000;
+
+const idbReady = () => typeof indexedDB !== 'undefined' && !!indexedDB;
+
+function idbOpen(){
+  return new Promise((resolve, reject) => {
+    if(!idbReady()) return reject(new Error('no indexeddb here'));
+    let req;
+    try{ req = indexedDB.open(DB_NAME, 1); }
+    catch(e){ return reject(e); }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if(!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error || new Error('indexeddb refused'));
+    req.onblocked = () => reject(new Error('indexeddb blocked'));
+  });
+}
+
+function idbDo(mode, fn){
+  return idbOpen().then(db => new Promise((resolve, reject) => {
+    let request;
+    const tx = db.transaction(DB_STORE, mode);
+    try{ request = fn(tx.objectStore(DB_STORE)); }
+    catch(e){ reject(e); return; }
+    tx.oncomplete = () => resolve(request ? request.result : undefined);
+    tx.onerror    = () => reject(tx.error);
+    tx.onabort    = () => reject(tx.error || new Error('write aborted'));
+  }));
+}
+const storePut  = (k, v) => idbDo('readwrite', s => s.put(v, k));
+const storeGet  = k      => idbDo('readonly',  s => s.get(k));
+const storeDel  = k      => idbDo('readwrite', s => s.delete(k));
+const storeKeys = ()     => idbDo('readonly',  s => s.getAllKeys());
+
+/* Fill in anything a saved or imported trip is missing, and carry older
+   shapes forward, so one path handles both loading and restoring. */
+function hydrate(obj){
+  const t = Object.assign(blankState(), obj || {});
+  if(!Array.isArray(t.people))   t.people = [];
+  if(!Array.isArray(t.receipts)) t.receipts = [];
+  if(!Array.isArray(t.groups))   t.groups = [];
+  if(!t.trip || typeof t.trip !== 'object') t.trip = blankState().trip;
+
+  const everyone = t.people.map(p => p.id);
+  t.receipts.forEach(r => (r.lines || []).forEach(l => {
+    // Older saves stored the sentinel 'ALL'. Freeze it to the roster.
+    if(l.assigned === 'ALL'){ l.assigned = everyone.slice(); l.all = true; }
+    if(l.all === undefined){
+      const ids = Array.isArray(l.assigned) ? l.assigned : [];
+      l.all = everyone.length > 0 && everyone.every(id => ids.includes(id));
+    }
+  }));
+  return t;
+}
+
+/* Says why a file is not a trip, or an empty string when it is one. */
+function validateBackup(obj){
+  if(!obj || typeof obj !== 'object' || Array.isArray(obj)) return 'That file is not a trip backup.';
+  if(!Array.isArray(obj.people) && !Array.isArray(obj.receipts)) return 'That file has no people and no receipts in it.';
+  if(obj.people && !Array.isArray(obj.people)) return 'The people in that file are not readable.';
+  if(obj.receipts && !Array.isArray(obj.receipts)) return 'The receipts in that file are not readable.';
+  return '';
+}
+
+async function loadState(){
+  try{
+    const held = await storeGet(CURRENT_KEY);
+    if(held) return hydrate(held);
+  }catch(e){ /* fall through to the older store */ }
   try{
     const raw = localStorage.getItem(STORE_KEY);
-    if(!raw) return blankState();
-    const loaded = Object.assign(blankState(), JSON.parse(raw));
-    // Older saves stored the sentinel 'ALL'. Freeze it to the roster as it
-    // stands now, which is the roster it was tapped against.
-    const everyone = loaded.people.map(p => p.id);
-    (loaded.receipts || []).forEach(r => (r.lines || []).forEach(l => {
-      if(l.assigned === 'ALL'){ l.assigned = everyone.slice(); l.all = true; }
-      if(l.all === undefined){
-        const ids = Array.isArray(l.assigned) ? l.assigned : [];
-        l.all = everyone.length > 0 && everyone.every(id => ids.includes(id));
-      }
-    }));
-    return loaded;
-  }catch(e){ return blankState(); }
+    if(raw) return hydrate(JSON.parse(raw));
+  }catch(e){}
+  return blankState();
 }
+
+let saveChain = Promise.resolve(), lastSnapAt = 0, movedOffLocal = false;
+
 function save(){
+  state.updatedAt = new Date().toISOString();
+  const snapshot = JSON.parse(JSON.stringify(state));   // what this call promised to write
+  saveChain = saveChain.then(async () => {
+    try{
+      await storePut(CURRENT_KEY, snapshot);
+      ui.saveFailed = false; ui.storedIn = 'IndexedDB';
+      await maybeSnapshot(snapshot);
+      if(!movedOffLocal){                                // the old copy is now stale
+        movedOffLocal = true;
+        try{ localStorage.removeItem(STORE_KEY); }catch(e){}
+      }
+    }catch(e){
+      try{
+        localStorage.setItem(STORE_KEY, JSON.stringify(snapshot));
+        ui.saveFailed = false; ui.storedIn = 'localStorage';
+      }catch(e2){
+        // Nothing is being written any more, so say so where it cannot be missed.
+        ui.saveFailed = true;
+        ui.err = 'Could not save: ' + (e2.message || e.message);
+      }
+    }
+  }).catch(() => {});
+  return true;
+}
+
+async function maybeSnapshot(what){
+  const now = Date.now();
+  if(now - lastSnapAt < SNAP_EVERY_MS) return;
+  lastSnapAt = now;
   try{
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    ui.saveFailed = false;
-    return true;
-  }catch(e){
-    // Nothing is being written any more, so say so where it cannot be missed.
-    ui.saveFailed = true;
-    ui.err = 'Could not save locally: ' + e.message;
-    return false;
-  }
+    await storePut('snap:' + new Date(now).toISOString(), what);
+    const keys = (await storeKeys() || []).map(String).filter(k => k.startsWith('snap:')).sort();
+    for(const k of keys.slice(0, Math.max(0, keys.length - SNAP_KEEP))) await storeDel(k);
+  }catch(e){}
 }
 function getKey(){ try{ return localStorage.getItem(KEY_KEY)||''; }catch(e){ return ''; } }
 function setKey(v){ try{ v ? localStorage.setItem(KEY_KEY,v) : localStorage.removeItem(KEY_KEY); }catch(e){} }
@@ -637,6 +730,17 @@ function render(){
   ui.err=''; ui.msg='';
 }
 
+function backupAge(){
+  if(!state.lastBackupAt) return null;
+  const then = Date.parse(state.lastBackupAt);
+  if(isNaN(then)) return null;
+  return Math.floor((Date.now() - then) / 86400000);
+}
+function stateSizeKb(){
+  try{ return Math.max(1, Math.round(JSON.stringify(state).length / 1024)); }
+  catch(e){ return '?'; }
+}
+
 function defaultGroupName(){
   const names = ui.newGroupMembers.map(id => person(id)).filter(Boolean).map(p => p.name);
   return names.length ? names.join(' & ') : '';
@@ -730,11 +834,21 @@ function viewTrip(){
 
   <div class="card">
     <h2>Your data</h2>
+    ${backupAge() !== null && backupAge() >= 3 && state.receipts.length ? `<div class="notice">Last backup was ${backupAge()} days ago. Download one now.</div>` : ''}
+    ${backupAge() === null && state.receipts.length ? '<div class="notice">You have never taken a backup. Download one now and put it somewhere off this phone.</div>' : ''}
     <div class="btnrow">
-      <button data-act="exportJson">Download backup</button>
+      <button class="primary" data-act="exportJson">Download backup</button>
+      <label class="chip" style="padding:11px 14px;border-radius:10px">Restore from backup
+        <input type="file" accept="application/json,.json" data-act="importJson" style="display:none"></label>
       <button class="danger" data-act="resetAll">Erase everything</button>
     </div>
-    <p class="sub" style="margin-top:8px">Everything is stored in this browser. Clearing site data wipes it, so download a backup before you fly home.</p>
+    <div class="totrow tiny muted" style="margin-top:10px">
+      <span>Held in</span><span>${esc(ui.storedIn || (idbReady() ? 'IndexedDB' : 'localStorage'))} · ${stateSizeKb()} KB</span>
+    </div>
+    <div class="totrow tiny muted">
+      <span>Last backup</span><span>${state.lastBackupAt ? esc(state.lastBackupAt.slice(0,10)) : 'never'}</span>
+    </div>
+    <p class="sub" style="margin-top:8px">Everything lives on this phone. Clearing website data wipes it, and a lost phone takes the trip with it, so keep a backup in Files or iCloud. Restoring replaces what is here, and a snapshot is kept first so it is undoable.</p>
   </div>`;
 }
 
@@ -1140,8 +1254,11 @@ document.addEventListener('click', e => {
     },
     checkUpdate(){ checkForUpdate(); },
     exportJson(){
+      state.lastBackupAt = new Date().toISOString();
       const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
-      download(blob, (state.trip.name||'trip').replace(/\W+/g,'-').toLowerCase()+'-backup.json');
+      const stamp = new Date().toISOString().slice(0,10);
+      download(blob, (state.trip.name||'trip').replace(/\W+/g,'-').toLowerCase()+'-'+stamp+'-backup.json');
+      save(); render();
     },
     resetAll(){
       if(!confirm('Erase the whole trip from this browser? This cannot be undone.')) return;
@@ -1190,9 +1307,43 @@ document.addEventListener('input', e => {
 });
 
 document.addEventListener('change', e => {
-  const el = e.target.closest('[data-act="photo"]');
-  if(el && el.files && el.files[0]) handlePhoto(el.dataset.id, el.files[0]);
+  const photo = e.target.closest('[data-act="photo"]');
+  if(photo && photo.files && photo.files[0]) handlePhoto(photo.dataset.id, photo.files[0]);
+  const backup = e.target.closest('[data-act="importJson"]');
+  if(backup && backup.files && backup.files[0]){
+    restoreBackup(backup.files[0]);
+    backup.value = '';           // so the same file may be picked again
+  }
 });
+
+/* A backup you cannot put back is not a backup. */
+async function restoreBackup(file){
+  let text, obj;
+  try{ text = await file.text(); }
+  catch(e){ alert('That file could not be opened.'); return; }
+  try{ obj = JSON.parse(text); }
+  catch(e){ alert('That file is not readable as a backup. It should be the .json file this app downloaded.'); return; }
+
+  const why = validateBackup(obj);
+  if(why){ alert(why); return; }
+
+  const incoming = hydrate(obj);
+  const ok = confirm(
+    'Replace the trip on this phone with the backup?\n\n' +
+    `In the backup: ${incoming.people.length} people, ${incoming.receipts.length} receipts\n` +
+    `On this phone now: ${state.people.length} people, ${state.receipts.length} receipts\n\n` +
+    'A snapshot of what is here is kept first, so this is undoable.'
+  );
+  if(!ok) return;
+
+  try{ await storePut('snap:' + new Date().toISOString() + '-before-restore', state); }catch(e){}
+
+  state = incoming;
+  ui.receiptId = null; ui.queueLine = null; ui.tab = 'trip';
+  ui.newGroupMembers = []; ui.newGroupName = '';
+  save(); render();
+  alert(`Restored. ${incoming.people.length} people and ${incoming.receipts.length} receipts are back.`);
+}
 
 document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
   ui.tab = b.dataset.tab; if(ui.tab!=='receipts'){ ui.receiptId=null; ui.queueLine=null; } render();
@@ -1601,8 +1752,12 @@ async function checkForUpdate(){
 }
 
 /* ---------- boot ---------- */
-render();
-setupUpdates();
+render();                                    // draw something immediately
+(async function boot(){
+  try{ state = await loadState(); }catch(e){}
+  render();
+  setupUpdates();
+})();
 </script>
 </body>
 </html>

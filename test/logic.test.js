@@ -46,7 +46,7 @@ vm.runInContext(`globalThis.__api = {
   round2, eur, cad, parseAmount, matchNotation, suggestShared, parseReceiptText,
   addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned, translateItem,
   tripTotals, settlements, unitList, unitTotals, groupOf, groupMembers, everyoneNow, syncAllFlag,
-  receiptRate, receiptHasActual, receiptGrandEur, blendedRate
+  receiptRate, receiptHasActual, receiptGrandEur, blendedRate, hydrate, validateBackup
 };`, sandbox);
 
 const S = sandbox.__api;
@@ -253,6 +253,36 @@ check('and owes on their own', S.unitTotals().find(u => u.name === 'Elena').owed
 const m4 = S.settlements();
 check('two transfers now', m4.length, 2);
 check('every euro paid comes back', S.round2(m4.reduce((a, m) => a + m.amount, 0)), 77);
+
+console.log('\nbackup files');
+check('a plain object is not a backup', S.validateBackup(null), 'That file is not a trip backup.');
+check('nor is a list', S.validateBackup([1,2,3]), 'That file is not a trip backup.');
+check('nor is a random json file', S.validateBackup({ hello: 'world' }), 'That file has no people and no receipts in it.');
+check('broken people are rejected', S.validateBackup({ people: 'Jason', receipts: [] }), 'The people in that file are not readable.');
+check('broken receipts are rejected', S.validateBackup({ people: [], receipts: 'lots' }), 'The receipts in that file are not readable.');
+check('a real trip passes', S.validateBackup({ people: [{id:'p1'}], receipts: [] }), '');
+
+/* Restoring has to cope with a file written by an older version. */
+const older = {
+  trip: { name: 'Italy 2025', rate: 1.4 },
+  people: [{ id: 'a', name: 'Ann', tag: 'A', colour: '#2563EB' },
+           { id: 'b', name: 'Ben', tag: 'B', colour: '#059669' }],
+  receipts: [{ id: 'r', place: 'Bar', date: '2025-05-01', payerId: 'a', lines: [
+    { id: 'l1', desc: 'Vino', amount: 20, assigned: 'ALL' },      // the old sentinel
+    { id: 'l2', desc: 'Caffe', amount: 4, assigned: ['a'] }
+  ]}]
+};
+const back = S.hydrate(older);
+check('missing groups are filled in', back.groups, []);
+check('the old everyone sentinel is frozen', back.receipts[0].lines[0].assigned, ['a','b']);
+check('and flagged', back.receipts[0].lines[0].all, true);
+check('a one-person line is not everyone', back.receipts[0].lines[1].all, false);
+check('the trip details survive', [back.trip.name, back.trip.rate], ['Italy 2025', 1.4]);
+
+/* A file with only the bare minimum still restores. */
+const bare = S.hydrate({ people: [{ id: 'z', name: 'Zoe', tag: 'Z' }] });
+check('missing receipts become empty', bare.receipts, []);
+check('a default rate is supplied', typeof bare.trip.rate, 'number');
 
 console.log('\ncurrency');
 check('CAD conversion', S.cad(27), 'C$40.50');

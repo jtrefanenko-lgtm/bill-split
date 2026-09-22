@@ -92,7 +92,8 @@ Anything else comes up in the queue for you to assign.
 
 - **Copy summary text** for pasting into a message thread.
 - **Download CSV** for every line, its owners, both currencies and the settlement. Opens in Excel.
-- **Download backup** on the Trip tab saves the whole trip as JSON. Do this before you fly home, since clearing browser data wipes the trip.
+- **Download backup** on the Trip tab saves the whole trip as JSON, dated. The card nags you if the last one is over three days old, or if you have never taken one.
+- **Restore from backup** puts a downloaded file back. It replaces what is on the phone, and takes a snapshot first so the restore itself is undoable.
 
 ## Updating the app
 
@@ -104,6 +105,18 @@ The Trip tab shows which build you are running, stamped with the commit and date
 - Check for updates on the Trip tab forces a look, and says plainly whether you are current.
 - Your trip data lives in localStorage and is untouched by an update. Roster, receipts, assignments and the rate all carry over.
 - Offline, the check reports it could not reach the server and the app keeps working from cache.
+
+## Where the data lives
+
+The trip is held on the phone, in IndexedDB. Nothing is sent anywhere.
+
+- IndexedDB has room in the hundreds of megabytes. The old store was localStorage, with about five, which a few receipt photos would have filled.
+- A trip saved by an older version is read across the first time it loads, then the old copy is cleared out.
+- Every ten minutes of activity the app keeps a snapshot, holding the last twenty. A restore also snapshots first.
+- If a private window refuses IndexedDB, saving falls back to localStorage. The Trip tab says which one is in use and how much is stored.
+- If saving fails outright, a red banner appears on every tab telling you to take a backup. It is never a quiet failure.
+
+None of this survives a lost phone or a cleared browser. Take a backup.
 
 ## Tests
 
