@@ -151,6 +151,41 @@ check('a discount keeps its sign', shape(lay(
   'Coperto 3,00', 'Sconto -2,50'
 ))[1], [1, 'Sconto', '-2,50', '']);
 
+/* A real receipt, Costabella in Selva Gardena, typed exactly as printed.
+   Two price columns, a continuation line, a timestamp and a grand total
+   on a line of its own: every one of these produced garbage before. */
+const costabella = [
+  'Costabella Ristorante Pizzeria', 'Via Meisules 279', 'M.H.M SRL', 'Via Meisules 277',
+  '39048 Selva Gardena', 'BZ ITALIA', 'Reg. Imp. Bz P.IVA 01686930213',
+  'non vale come Fattura', 'Comanda:    65    Tavolo: 3 Bar', 'Data   :22/09/26 21.13',
+  'Cameriere: Martina', 'Qta.  Descr.        Prezzo  Prezzo', '                  unitario totale',
+  '4 x Coperto            2,50   10,00',
+  '2 x Acqua nat          4,20    8,40',
+  '1 x Weizen 0,5         6,50    6,50',
+  '1 x Bic. Blaub0,2     11,00   11,00',
+  '1 x Bic.Pino Grig0,   10,00   10,00',
+  '1 x Tagliata manzo    28,00   28,00',
+  '3 x Milanese          23,00   69,00',
+  '    con dippers',
+  '1 x Caprese           15,00   15,00',
+  '1 x Via portata        0,00    0,00',
+  '1 x Strudel+gelato     8,50    8,50',
+  '                              166,40',
+  'IMPORTO EURO'
+].join('\n');
+const cb = S.parseReceiptText(costabella);
+
+check('ten items, no more and no fewer', cb.length, 10);
+check('the line total is taken, never the unit price', cb.map(l => l.amount),
+  ['10,00','8,40','6,50','11,00','10,00','28,00','69,00','15,00','0,00','8,50']);
+check('quantities come through', cb.map(l => l.qty), [4,2,1,1,1,1,3,1,1,1]);
+check('a continuation line rejoins its item', cb[6].desc, 'Milanese con dippers');
+check('the timestamp is not an item', cb.some(l => /22\/09|21[.,]13/.test(l.desc + l.amount)), false);
+check('the grand total is not an item', cb.some(l => l.amount === '166,40'), false);
+check('the restaurant and its address stay out', cb.some(l => /Costabella|Meisules|Selva/i.test(l.desc)), false);
+check('it reconciles to the printed total',
+  S.round2(cb.reduce((t, l) => t + S.parseAmount(l.amount), 0)), 166.40);
+
 console.log('\ntranslating item names');
 check('single word', S.translateItem('Branzino'), 'Sea bass');
 check('accents ignored', S.translateItem('Caffè'), 'Espresso');

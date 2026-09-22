@@ -74,11 +74,15 @@ Set one trip rate on the Trip tab and every figure converts at it. When the card
 
 Italian tills print in several shapes, and the app reads them all.
 
+- Two price columns, headed Prezzo unitario and Prezzo totale. The line total is taken, never the unit price, so 4 coperti at 2,50 reads as 10,00.
+- A short line of words beneath an item, such as `con dippers`, rejoins the item above it.
 - Name and price on one line.
 - Name on one line with `4 x 3,00   12,00` beneath it. This counts as one item, taking the name above and the line total on the right, never the unit price.
 - A dotted or spaced price column.
 - A euro sign before the amount.
 - A quantity in front of the name, while a dish named after a number, like Pizza 4 formaggi, is left alone.
+
+The order number, table, date, time, server, address and VAT number are left out, and so is the grand total where the till prints it on a line of its own.
 
 The VAT class letter a till prints after every amount is dropped, so it is never mistaken for someone's initials. A genuine notation written on only some lines survives. Where the two are indistinguishable the app drops it, which sends the line to the queue for you to tap, rather than assigning it to the wrong person quietly.
 
