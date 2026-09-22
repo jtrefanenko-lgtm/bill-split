@@ -470,8 +470,10 @@ function photoCard(r){
   return `
   <div class="card">
     <h2>Receipt photo</h2>
-    <p class="sub">${key ? 'Claude will read it.' : 'No API key set, so on-device OCR runs instead. Slower and rougher on faded receipts.'}</p>
-    <input type="file" accept="image/*" capture="environment" id="photoInput" data-act="photo" data-id="${r.id}">
+    <p class="sub">Pick one from your photo library, or take a new one. ${key ? 'Claude reads it.' : 'No API key set, so on-device OCR runs instead. Slower and rougher on faded receipts.'}</p>
+    <!-- No capture attribute, so the phone offers the library alongside the
+         camera. Photograph receipts over dinner and sort them out later. -->
+    <input type="file" accept="image/*" id="photoInput" data-act="photo" data-id="${r.id}">
     <div id="ocrStatus" class="small muted" style="margin-top:8px">${ui.busy?'<span class="spin"></span> Reading the receipt...':''}${ui.err?`<span class="err">${esc(ui.err)}</span>`:''}</div>
     ${r.photo ? `<img class="thumb" src="${r.photo}" alt="Receipt photo">` : ''}
     <details style="margin-top:10px"><summary>Or paste receipt text</summary>

@@ -14,7 +14,7 @@ Everything stays in your browser. No server, no account, no data leaving your ph
 ## Using it at the table
 
 - **Receipts tab**, add a receipt, set the place and who paid.
-- Photograph the receipt. Claude reads the items, the amounts and any handwritten initials beside a line.
+- Add the receipt photo, either from your photo library or taken there and then. Claude reads the items, the amounts and any handwritten initials beside a line. Photographing receipts over dinner and sorting them out later at the hotel works well.
 - Lines carrying a notation are assigned on the spot. The app shows "noted on receipt" beside them.
 - Lines with no notation come up one at a time. Tap the people sharing the line, then Next. Tap Everyone for shared plates, wine and coperto.
 - Add a tip or rounding at the bottom. It rides on each person's share of the items.
