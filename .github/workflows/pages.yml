@@ -38,6 +38,15 @@ jobs:
       # Pages must already be switched on under Settings, Pages, with the
       # source set to GitHub Actions. The workflow token is not allowed to
       # create the site itself.
+      # Stamp the commit and date into the page and the worker. A changed
+      # worker is what tells the browser a new version exists.
+      - name: Stamp the build
+        run: |
+          BUILD="${GITHUB_SHA:0:7} · $(date -u +%Y-%m-%d)"
+          sed -i "s|__BUILD__|$BUILD|g" index.html sw.js
+          echo "Stamped: $BUILD"
+          grep -n "$BUILD" index.html sw.js
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

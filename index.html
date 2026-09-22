@@ -90,6 +90,14 @@ nav button.on{color:var(--accent);font-weight:600}
 .progress{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin:10px 0}
 .progress i{display:block;height:100%;background:var(--accent)}
 .hidden{display:none}
+#updateBar.hidden{display:none}
+#updateBar{
+  position:fixed;left:10px;right:10px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:40;
+  background:var(--accent);color:var(--accent-ink);border-radius:12px;padding:11px 12px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px;
+  box-shadow:0 6px 22px rgba(0,0,0,.28);
+}
+#updateBar button{background:var(--card);color:var(--ink);border:0;padding:8px 13px;border-radius:9px;font-weight:600}
 .thumb{max-width:100%;border-radius:10px;border:1px solid var(--line);margin-top:8px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:s .8s linear infinite;vertical-align:-2px}
 @keyframes s{to{transform:rotate(360deg)}}
@@ -109,6 +117,11 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;padding:4px 0}
   <div class="rate" id="rateBadge"></div>
 </header>
 
+<div id="updateBar" class="hidden">
+  <span>A new version is ready.</span>
+  <button data-act="applyUpdate">Update now</button>
+</div>
+
 <main class="wrap" id="view"></main>
 
 <nav>
@@ -122,6 +135,13 @@ details summary{cursor:pointer;color:var(--muted);font-size:14px;padding:4px 0}
    Italy Bill Split - single page, offline-friendly, no build step.
    Data lives in this browser only (localStorage).
 --------------------------------------------------------------- */
+
+/* The deploy workflow stamps the commit and date into the placeholder
+   below. Opened straight from a file it stays unstamped, and the test
+   is written to match the stamped shape rather than the placeholder,
+   which the same substitution would otherwise rewrite. */
+const APP_BUILD = '__BUILD__';
+const BUILD_LABEL = /^[0-9a-f]{7} /.test(APP_BUILD) ? APP_BUILD : 'working copy';
 
 const STORE_KEY = 'italy-bill-split-v1';
 const KEY_KEY   = 'italy-bill-split-apikey';
@@ -543,6 +563,13 @@ function viewTrip(){
   </div>
 
   <div class="card">
+    <h2>App version</h2>
+    <div class="totrow"><span>Running</span><span class="small muted">${esc(BUILD_LABEL)}</span></div>
+    <button class="wide" data-act="checkUpdate" style="margin-top:8px">Check for updates</button>
+    <div id="updateStatus" class="sub" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
     <h2>Your data</h2>
     <div class="btnrow">
       <button data-act="exportJson">Download backup</button>
@@ -875,6 +902,14 @@ document.addEventListener('click', e => {
     },
     exportCsv(){ exportCsv(); },
     copySummary(){ copySummary(el); },
+    applyUpdate(){
+      if(!swWaiting){ location.reload(); return; }
+      el.textContent = 'Updating...';
+      swWaiting.postMessage({ type:'SKIP_WAITING' });
+      // If the handover does not fire, reload anyway rather than hang.
+      setTimeout(() => { if(!reloading){ reloading = true; location.reload(); } }, 3000);
+    },
+    checkUpdate(){ checkForUpdate(); },
     exportJson(){
       const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
       download(blob, (state.trip.name||'trip').replace(/\W+/g,'-').toLowerCase()+'-backup.json');
@@ -1126,11 +1161,64 @@ function copySummary(btn){
   }
 }
 
+/* ---------- staying up to date -----------------------------------
+   A new version waits rather than barging in mid-receipt. The banner
+   appears, and one tap hands over and reloads.
+------------------------------------------------------------------ */
+let swReg = null, swWaiting = null, reloading = false;
+
+function offerUpdate(worker){
+  swWaiting = worker;
+  const bar = document.getElementById('updateBar');
+  if(bar) bar.classList.remove('hidden');
+}
+
+function watchWorker(worker){
+  if(!worker) return;
+  worker.addEventListener('statechange', () => {
+    // A controller already in charge means this one is a replacement.
+    if(worker.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(worker);
+  });
+}
+
+function setupUpdates(){
+  if(!('serviceWorker' in navigator) || !window.isSecureContext) return;
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    swReg = reg;
+    if(reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
+    watchWorker(reg.installing);
+    reg.addEventListener('updatefound', () => watchWorker(reg.installing));
+  }).catch(()=>{});
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if(reloading) return;          // one reload, never a loop
+    reloading = true;
+    location.reload();
+  });
+}
+
+async function checkForUpdate(){
+  const box = document.getElementById('updateStatus');
+  const say = t => { if(box) box.innerHTML = t; };
+  if(!swReg){
+    say('Updates arrive when you open the app from its web address. A copy opened from a file stays as it is.');
+    return;
+  }
+  say('<span class="spin"></span> Checking...');
+  try{
+    await swReg.update();
+    await new Promise(r => setTimeout(r, 400));    // small margin for the state to settle
+    if(swReg.waiting) say('A new version is ready. Tap Update now in the banner.');
+    else if(swReg.installing) say('A new version is downloading. The banner appears when it is ready.');
+    else say('You are on the latest version.');
+  }catch(e){
+    say('Could not reach the server. You are likely offline.');
+  }
+}
+
 /* ---------- boot ---------- */
 render();
-if('serviceWorker' in navigator && location.protocol === 'https:'){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
-}
+setupUpdates();
 </script>
 </body>
 </html>

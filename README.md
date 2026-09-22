@@ -67,6 +67,16 @@ Anything else comes up in the queue for you to assign.
 - **Download CSV** for every line, its owners, both currencies and the settlement. Opens in Excel.
 - **Download backup** on the Trip tab saves the whole trip as JSON. Do this before you fly home, since clearing browser data wipes the trip.
 
+## Updating the app
+
+The Trip tab shows which build you are running, stamped with the commit and date at deploy time.
+
+- When a new version is published, a banner appears at the bottom of the screen. One tap applies it and reloads.
+- Nothing changes underneath you mid-receipt. The new version waits until you tap.
+- Check for updates on the Trip tab forces a look, and says plainly whether you are current.
+- Your trip data lives in localStorage and is untouched by an update. Roster, receipts, assignments and the rate all carry over.
+- Offline, the check reports it could not reach the server and the app keeps working from cache.
+
 ## Tests
 
 ```
