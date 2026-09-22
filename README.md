@@ -83,7 +83,8 @@ Anything else comes up in the queue for you to assign.
 
 The Trip tab shows which build you are running, stamped with the commit and date at deploy time.
 
-- When a new version is published, a banner appears at the bottom of the screen. One tap applies it and reloads.
+- The app asks the network first, so opening it online gets the current version straight away. The cache is the fallback, which is what keeps it working with no connection.
+- When a new version is published while you have the app open, a banner appears at the bottom. One tap applies it and reloads.
 - Nothing changes underneath you mid-receipt. The new version waits until you tap.
 - Check for updates on the Trip tab forces a look, and says plainly whether you are current.
 - Your trip data lives in localStorage and is untouched by an update. Roster, receipts, assignments and the rate all carry over.
