@@ -44,7 +44,7 @@ vm.runInContext(script, sandbox);
 vm.runInContext(`globalThis.__api = {
   get state(){ return state; }, set state(v){ state = v; },
   round2, eur, cad, parseAmount, matchNotation, suggestShared, parseReceiptText,
-  addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned,
+  addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned, translateItem,
   tripTotals, settlements
 };`, sandbox);
 
@@ -95,6 +95,28 @@ check('line count excludes total', parsed.length, 4);
 check('quantity pulled out', { qty: parsed[1].qty, desc: parsed[1].desc }, { qty: 2, desc: 'Birra media' });
 check('trailing notation captured', parsed[2].note, 'J');
 
+console.log('\ntranslating item names');
+check('single word', S.translateItem('Branzino'), 'Sea bass');
+check('accents ignored', S.translateItem('Caffè'), 'Espresso');
+check('phrase beats single words', S.translateItem('Frutti di mare'), 'Seafood');
+check('glue words read naturally', S.translateItem('Pasta al ragu'), 'Pasta with meat sauce');
+check('preparation moves to the front', S.translateItem('Branzino alla griglia'), 'Grilled sea bass');
+check('wine colour leads', S.translateItem('Vino rosso'), 'Red wine');
+check('coffee with liquor reads as one thing', S.translateItem('Caffe corretto'), 'Espresso with liquor');
+check('leading quantity dropped', S.translateItem('2 x Birra media'), 'Medium beer');
+check('receipt wording', S.translateItem('Coperto'), 'Cover charge');
+check('unknown word left alone', S.translateItem('Zzzqq'), null);
+check('mostly unknown gives nothing', S.translateItem('Zzzqq Ppplk Mmmnn vino'), null);
+check('already english gives nothing', S.translateItem('Pizza'), null);
+check('empty input', S.translateItem(''), null);
+check('repeated noun collapses', S.translateItem('Calice vino bianco'), 'Glass of white wine');
+check('glossary noun yields to the fuller one', S.translateItem('Risotto ai funghi porcini'), 'Risotto with porcini mushrooms');
+check('stranded joining word dropped', S.translateItem('Melanzane alla parmigiana'), 'Aubergine bake');
+check('curly apostrophe splits words', S.translateItem('Penne all\u2019arrabbiata'), 'Penne with spicy tomato');
+check('straight apostrophe splits words', S.translateItem("Penne all'arrabbiata"), 'Penne with spicy tomato');
+check('named dish beats word by word', S.translateItem('Bistecca alla fiorentina'), 'T-bone steak');
+check('house wine', S.translateItem('Vino rosso della casa'), 'House red wine');
+
 console.log('\nsplitting one receipt');
 const r1 = { id: 'r1', place: 'Trattoria', date: '2026-09-20', payerId: 'p1', lines: [], extra: '', statedTotal: '' };
 S.state.receipts.push(r1);
@@ -105,6 +127,7 @@ S.addLines(r1, [
   { desc: 'Coperto', amount: 6, qty: 1, note: '' }              // no notation -> asked
 ]);
 check('notated lines auto-assigned', r1.lines.slice(0,2).map(l => l.assigned), [['p1'], ['p2']]);
+check('lines carry a translation', r1.lines.map(l => l.en), ['Pasta with meat sauce', 'Sea bass', 'House wine', 'Cover charge']);
 check('un-notated lines queue up', S.receiptUnassigned(r1), 30);
 check('shared item is suggested', S.suggestShared('Coperto'), true);
 
@@ -141,6 +164,11 @@ console.log('\nsettling across two receipts');
 const r2 = { id: 'r2', place: 'Bar Centrale', date: '2026-09-21', payerId: 'p2', lines: [], extra: '', statedTotal: '' };
 S.state.receipts.push(r2);
 S.addLines(r2, [{ desc: 'Caffe x3 ALL', amount: 9, qty: 3, note: '' }]);
+check('claude translation wins over the glossary', (() => {
+  const t = { id: 'rt', lines: [] };
+  S.addLines(t, [{ desc: 'Tagliata di manzo', en: 'Sliced beef steak', amount: 24, qty: 1, note: '' }]);
+  return t.lines[0].en;
+})(), 'Sliced beef steak');
 check('shared marker inside description', r2.lines[0].assigned, 'ALL');
 const t = S.tripTotals();
 check('owed per person', t.owed, { p1: 27, p2: 39, p3: 13 });

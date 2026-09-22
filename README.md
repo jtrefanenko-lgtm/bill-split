@@ -15,6 +15,7 @@ Everything stays in your browser. No server, no account, no data leaving your ph
 
 - **Receipts tab**, add a receipt, set the place and who paid.
 - Add the receipt photo, either from your photo library or taken there and then. Claude reads the items, the amounts and any handwritten initials beside a line. Photographing receipts over dinner and sorting them out later at the hotel works well.
+- Every line shows a plain English reading under the Italian, so you know what you are assigning. Branzino alla griglia reads as Grilled sea bass.
 - Lines carrying a notation are assigned on the spot. The app shows "noted on receipt" beside them.
 - Lines with no notation come up one at a time. Tap the people sharing the line, then Next. Tap Everyone for shared plates, wine and coperto.
 - Add a tip or rounding at the bottom. It rides on each person's share of the items.
@@ -33,6 +34,15 @@ Three ways in, in order of accuracy:
 Get an API key at console.anthropic.com. It is stored in your browser's local storage on your own device and sent only to `api.anthropic.com`. It is never written to this repository. Anyone with access to that phone has access to the key, so use a key with a spending limit.
 
 Review every line before assigning. OCR misreads faded receipts, and a wrong amount splits a wrong number.
+
+## Translation
+
+Item names stay in Italian, matching the paper, with an English reading underneath.
+
+- Photos read by Claude come back with the translation in the same call. No extra cost, no second request.
+- Lines you type, paste or pull off on-device OCR run through a built-in glossary of around 350 restaurant, bar and grocery terms. Works with no connection.
+- The glossary stays quiet when it recognises too little, rather than guessing. Those lines show the Italian alone.
+- The English reading is carried into the CSV as its own column.
 
 ## Notation on the paper receipt
 

@@ -195,6 +195,195 @@ function matchNotation(text){
   if(hits.length) return { ids:[...new Set(hits)], why:'noted on receipt' };
   return null;
 }
+/* ---------- Italian to English --------------------------------------
+   A working glossary for trattoria, bar and alimentari receipts. Claude
+   supplies a translation with each line it reads; this covers lines you
+   type, paste or pull off on-device OCR, and works with no connection.
+--------------------------------------------------------------------- */
+const IT_EN = {
+  // service and receipt wording
+  'coperto':'cover charge','servizio':'service charge','servizio incluso':'service included',
+  'mancia':'tip','sconto':'discount','supplemento':'supplement','asporto':'takeaway',
+  'consumazione':'drink included','iva':'VAT','menu del giorno':'menu of the day',
+  'sconto fedelta':'loyalty discount','fedelta':'loyalty','servizio 10':'service charge 10%',
+  'menu turistico':'tourist menu','piatto del giorno':'dish of the day',
+  // courses
+  'antipasto':'starter','antipasti':'starters','antipasto misto':'mixed starters',
+  'primo':'first course','primi':'first courses','secondo':'main course','secondi':'main courses',
+  'contorno':'side dish','contorni':'side dishes','dolce':'dessert','dolci':'desserts',
+  'frutta':'fruit','macedonia':'fruit salad','degustazione':'tasting',
+  // pasta and grains
+  'pasta':'pasta','spaghetti':'spaghetti','penne':'penne','rigatoni':'rigatoni',
+  'tagliatelle':'tagliatelle','fettuccine':'fettuccine','linguine':'linguine',
+  'bucatini':'bucatini','pappardelle':'pappardelle','orecchiette':'orecchiette',
+  'trofie':'trofie','farfalle':'farfalle','gnocchi':'potato dumplings','ravioli':'ravioli',
+  'tortellini':'tortellini','lasagne':'lasagne','cannelloni':'cannelloni',
+  'risotto':'risotto','riso':'rice','farro':'spelt','polenta':'polenta','zuppa':'soup',
+  'minestrone':'vegetable soup','brodo':'broth','minestra':'soup',
+  // sauces and preparations
+  'ragu':'meat sauce','bolognese':'meat sauce','carbonara':'carbonara','amatriciana':'amatriciana',
+  'cacio e pepe':'cheese and pepper','pesto':'pesto','pomodoro':'tomato','pomodori':'tomatoes',
+  'arrabbiata':'spicy tomato','puttanesca':'puttanesca','aglio e olio':'garlic and oil',
+  'quattro formaggi':'four cheeses','frutti di mare':'seafood','scoglio':'seafood',
+  'norma':'aubergine and ricotta','genovese':'onion and beef',
+  'griglia':'grill','alla griglia':'grilled','ai ferri':'grilled','arrosto':'roast',
+  'al forno':'baked','fritto':'fried','fritta':'fried','fritte':'fried','fritti':'fried',
+  'fritto misto':'mixed fried seafood','bollito':'boiled','crudo':'raw','cotto':'cooked',
+  'ripieno':'stuffed','misto':'mixed','mista':'mixed','piccante':'spicy','gratinato':'gratin',
+  'in umido':'stewed','al vapore':'steamed','saltati':'sauteed','della casa':'house',
+  'senza glutine':'gluten free','vegetariano':'vegetarian','biologico':'organic',
+  // meat
+  'carne':'meat','manzo':'beef','vitello':'veal','maiale':'pork','agnello':'lamb',
+  'pollo':'chicken','tacchino':'turkey','anatra':'duck','coniglio':'rabbit',
+  'cinghiale':'wild boar','bistecca':'steak','tagliata':'sliced steak',
+  'filetto':'fillet','costata':'rib steak','salsiccia':'sausage','polpette':'meatballs',
+  'prosciutto':'ham','prosciutto crudo':'cured ham','prosciutto cotto':'cooked ham',
+  'speck':'smoked ham','salame':'salami','bresaola':'cured beef','mortadella':'mortadella',
+  'porchetta':'roast pork','cotoletta':'breaded cutlet','scaloppine':'veal escalopes',
+  'ossobuco':'braised veal shank','trippa':'tripe','fegato':'liver','saltimbocca':'saltimbocca',
+  'affettati':'cured meats','salumi':'cured meats','tartare':'tartare',
+  'tagliere':'sharing board','bistecca alla fiorentina':'T-bone steak',
+  'alla fiorentina':'florentine style','alla milanese':'milanese style',
+  'alla romana':'roman style','alla norma':'aubergine and ricotta',
+  // fish
+  'pesce':'fish','branzino':'sea bass','spigola':'sea bass','orata':'sea bream',
+  'tonno':'tuna','salmone':'salmon','baccala':'salt cod','merluzzo':'cod',
+  'sogliola':'sole','pesce spada':'swordfish','acciughe':'anchovies','alici':'anchovies',
+  'sarde':'sardines','sardine':'sardines','gamberi':'prawns','gamberetti':'small prawns',
+  'gambero':'prawn','scampi':'langoustines','astice':'lobster','aragosta':'lobster',
+  'calamari':'squid','calamaro':'squid','totano':'squid','polpo':'octopus','seppia':'cuttlefish',
+  'cozze':'mussels','vongole':'clams','ostriche':'oysters','crostacei':'shellfish',
+  // vegetables
+  'verdure':'vegetables','verdura':'vegetables','insalata':'salad','insalata mista':'mixed salad',
+  'insalata verde':'green salad','melanzane':'aubergine','melanzana':'aubergine',
+  'zucchine':'courgettes','zucca':'squash','funghi':'mushrooms','porcini':'porcini mushrooms',
+  'tartufo':'truffle','carciofi':'artichokes','carciofo':'artichoke','spinaci':'spinach',
+  'patate':'potatoes','patatine':'chips','patatine fritte':'chips','fagioli':'beans',
+  'fagiolini':'green beans','piselli':'peas','ceci':'chickpeas','lenticchie':'lentils',
+  'cipolla':'onion','cipolle':'onions','aglio':'garlic','peperoni':'peppers',
+  'peperonata':'stewed peppers','rucola':'rocket','radicchio':'radicchio','finocchio':'fennel',
+  'asparagi':'asparagus','broccoli':'broccoli','cavolo':'cabbage','cavolfiore':'cauliflower',
+  'carote':'carrots','olive':'olives','oliva':'olive','caponata':'sweet and sour aubergine',
+  'grigliate':'grilled','grigliata':'grilled','grigliato':'grilled','grigliati':'grilled',
+  'melone':'melon','anguria':'watermelon','pera':'pear','mela':'apple','uva':'grapes',
+  'parmigiana':'aubergine bake','friarielli':'broccoli rabe','cicoria':'chicory',
+  // cheese, bread, eggs
+  'formaggio':'cheese','formaggi':'cheeses','parmigiano':'parmesan','pecorino':'pecorino',
+  'mozzarella':'mozzarella','bufala':'buffalo mozzarella','burrata':'burrata',
+  'ricotta':'ricotta','gorgonzola':'gorgonzola','stracciatella':'stracciatella',
+  'scamorza':'smoked cheese','taleggio':'taleggio','provola':'provola',
+  'pane':'bread','focaccia':'focaccia','bruschetta':'bruschetta','grissini':'breadsticks',
+  'piadina':'flatbread','panino':'sandwich','tramezzino':'sandwich','crostini':'toasts',
+  'uovo':'egg','uova':'eggs','frittata':'omelette','burro':'butter','olio':'oil',
+  'aceto':'vinegar','sale':'salt','pepe':'pepper','basilico':'basil','prezzemolo':'parsley',
+  // pizza
+  'pizza':'pizza','margherita':'margherita','marinara':'marinara','capricciosa':'capricciosa',
+  'diavola':'spicy salami','calzone':'calzone','napoli':'anchovy and caper',
+  'boscaiola':'mushroom and sausage','focaccia genovese':'genoese focaccia',
+  // dessert
+  'tiramisu':'tiramisu','panna cotta':'panna cotta','gelato':'ice cream','sorbetto':'sorbet',
+  'cannolo':'cannolo','cannoli':'cannoli','torta':'cake','crostata':'tart',
+  'semifreddo':'frozen mousse','profiterole':'profiteroles','affogato':'ice cream with espresso',
+  'biscotti':'biscuits','cantucci':'almond biscuits','sfogliatella':'sfogliatella',
+  'torta della nonna':'custard tart','nonna':'grandmother',
+  'babà':'rum baba','zeppole':'doughnuts','cornetto':'croissant','brioche':'pastry',
+  'panna':'cream','crema':'custard','cioccolato':'chocolate','pistacchio':'pistachio',
+  'limone':'lemon','fragola':'strawberry','nocciola':'hazelnut','vaniglia':'vanilla',
+  // drinks
+  'acqua':'water','acqua naturale':'still water','naturale':'still','frizzante':'sparkling',
+  'acqua frizzante':'sparkling water','acqua gassata':'sparkling water','gassata':'sparkling',
+  'vino':'wine','vino rosso':'red wine','vino bianco':'white wine','rosso':'red','bianco':'white',
+  'rosato':'rose wine','bottiglia':'bottle','mezza bottiglia':'half bottle','calice':'glass of wine',
+  'bicchiere':'glass','caraffa':'carafe','sfuso':'house wine','birra':'beer',
+  'birra media':'medium beer','birra piccola':'small beer','birra grande':'large beer',
+  'spina':'draught','alla spina':'draught','prosecco':'prosecco','spumante':'sparkling wine','aperitivo':'aperitif',
+  'spritz':'spritz','negroni':'negroni','amaro':'bitter liqueur','grappa':'grappa',
+  'limoncello':'limoncello','digestivo':'digestif','liquore':'liqueur',
+  'caffe':'espresso','espresso':'espresso','cappuccino':'cappuccino','macchiato':'macchiato',
+  'latte':'milk','latte macchiato':'latte macchiato','corretto':'with liquor',
+  'decaffeinato':'decaf','deca':'decaf','orzo':'barley coffee','the':'tea','tisana':'herbal tea',
+  'cioccolata calda':'hot chocolate','succo':'juice','spremuta':'fresh juice',
+  'aranciata':'orangeade','limonata':'lemonade','ghiaccio':'ice','bibita':'soft drink',
+  // sizes and odds
+  'piccolo':'small','piccola':'small','medio':'medium','media':'medium',
+  'grande':'large','doppio':'double','porzione':'portion','mezzo':'half','mezza':'half',
+  'locale':'local','tipico':'traditional','fresco':'fresh','stagionale':'seasonal'
+};
+
+/* English readings that work as adjectives. Italian trails them after the
+   noun, English leads with them, so these get moved to the front:
+   "branzino alla griglia" reads as "grilled sea bass", not "sea bass grilled". */
+const IT_MODIFIER = new Set([
+  'grilled','baked','fried','roast','boiled','steamed','stewed','sauteed','gratin',
+  'raw','cooked','stuffed','mixed','spicy','smoked','fresh','local','traditional',
+  'seasonal','organic','vegetarian','gluten free','house','still','sparkling',
+  'red','white','small','medium','large','double','half','draught'
+]);
+
+/* Words carried across without counting toward how much was understood. */
+const IT_GLUE = {
+  'al':'with','alla':'with','alle':'with','allo':'with','ai':'with','agli':'with',
+  'con':'with','di':'of','del':'of','della':'of','dello':'of','dei':'of','delle':'of','degli':'of',
+  'all':'with','dell':'of','nell':'in','sull':'on','nel':'in','sul':'on',
+  'e':'and','ed':'and','in':'in','da':'from','su':'on','per':'for','a':'','ad':'',
+  'il':'','lo':'','la':'','i':'','gli':'','le':'','un':'','uno':'','una':'',"l'":'',"d'":''
+};
+
+function normalizeIt(s){
+  return String(s||'')
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')   // caffè -> caffe
+    .toLowerCase()
+    .replace(/^\s*\d+\s*[x×]\s*/,'')                    // drop a leading "2 x"
+    .replace(/['’]/g,' ')
+    .replace(/[^a-z0-9\s]/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+/* Returns an English reading, or null when too little was recognised to
+   be worth showing. Never guesses at a word it does not hold. */
+function translateItem(desc){
+  const norm = normalizeIt(desc);
+  if(!norm) return null;
+  if(IT_EN[norm]) return IT_EN[norm] === norm ? null : sentence(IT_EN[norm]);
+
+  const words = norm.split(' ');
+  const out = [];
+  let known = 0, counted = 0;
+
+  for(let i = 0; i < words.length; i++){
+    let hit = null, span = 1;
+    for(let n = Math.min(4, words.length - i); n >= 1; n--){       // longest phrase first
+      const phrase = words.slice(i, i + n).join(' ');
+      if(IT_EN[phrase]){ hit = IT_EN[phrase]; span = n; break; }
+    }
+    if(hit){ out.push(hit); known++; counted++; i += span - 1; continue; }
+
+    const w = words[i];
+    if(Object.prototype.hasOwnProperty.call(IT_GLUE, w)){ out.push(IT_GLUE[w]); continue; }
+    if(w.length <= 1){ out.push(''); continue; }
+    if(/^\d+([.,]\d+)?$/.test(w)){ out.push(w); continue; }
+    out.push(w); counted++;                                         // left as printed
+  }
+
+  if(!known || known / counted < 0.5) return null;
+
+  const lead = [], rest = [];
+  out.filter(Boolean).forEach((w, i) => (i > 0 && IT_MODIFIER.has(w) ? lead : rest).push(w));
+
+  // "calice vino bianco" builds "glass of wine white wine"; drop the earlier
+  // copy of a repeated word and any joining word left stranded at an end.
+  const GLUE_OUT = new Set(['with','of','and','in','from','on','for']);
+  let parts = lead.concat(rest).join(' ').split(/\s+/).filter(Boolean);
+  parts = parts.filter((w, i) => GLUE_OUT.has(w) || parts.indexOf(w, i + 1) === -1);
+  while(parts.length && GLUE_OUT.has(parts[0])) parts.shift();
+  while(parts.length && GLUE_OUT.has(parts[parts.length - 1])) parts.pop();
+
+  const text = parts.join(' ').trim();
+  return (!text || text === norm) ? null : sentence(text);
+}
+function sentence(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+
 function suggestShared(desc){
   const d = String(desc||'').toLowerCase();
   return SHARED_ITEM_HINTS.some(w => d.includes(w));
@@ -507,6 +696,7 @@ function queueCard(r, unassigned){
   <div class="queue">
     <div class="small muted">No notation on this line · ${unassigned.length} still to place</div>
     <h3 style="margin:6px 0 2px;font-size:18px">${esc(l.desc||'Item')}</h3>
+    ${l.en ? `<div class="small muted">${esc(l.en)}</div>` : ''}
     ${l.qty && l.qty>1 ? `<div class="small muted">Quantity ${l.qty}</div>` : ''}
     <div class="q-amt">${eur(l.amount)} <span class="tiny muted">${cad(l.amount)}</span></div>
     <p class="sub" style="margin-top:8px">Who is this for? Tap everyone sharing it.</p>
@@ -536,6 +726,7 @@ function lineRow(r,l){
   <div class="item">
     <div class="grow">
       <div>${esc(l.desc||'Item')}${l.qty&&l.qty>1?` <span class="muted small">×${l.qty}</span>`:''}</div>
+      ${l.en ? `<div class="tiny muted">${esc(l.en)}</div>` : ''}
       <div>${tags || '<span class="tag plain" style="background:var(--warn);color:#000">needs an owner</span>'}
         ${l.note?`<span class="tiny muted">note: ${esc(l.note)}</span>`:''}
         ${l.why?`<span class="tiny muted">· ${esc(l.why)}</span>`:''}</div>
@@ -725,15 +916,18 @@ document.querySelectorAll('nav button').forEach(b => b.addEventListener('click',
 /* ---------- adding lines with notation matching ---------- */
 function addLines(r, raw){
   for(const x of raw){
+    const desc = (x.desc||'').trim();
     const line = {
       id: uid(),
-      desc: (x.desc||'').trim(),
+      desc,
+      en: (x.en||'').trim() || translateItem(desc) || '',
       amount: round2(parseAmount(x.amount)),
       qty: Number(x.qty)||1,
       note: (x.note||'').trim(),
       assigned: [],
       why: ''
     };
+    if(line.en.toLowerCase() === desc.toLowerCase()) line.en = '';
     const m = matchNotation(line.desc + ' ' + line.note);
     if(m){ line.assigned = m.ids; line.why = m.why; }
     r.lines.push(line);
@@ -802,11 +996,12 @@ const EXTRACT_PROMPT = `You are reading a receipt from Italy. Extract every purc
 
 Return ONLY a JSON object, no prose and no code fence:
 {"place": string|null, "date": "YYYY-MM-DD"|null, "total": number|null,
- "lines": [{"qty": number, "desc": string, "amount": number, "note": string|null}]}
+ "lines": [{"qty": number, "desc": string, "en": string, "amount": number, "note": string|null}]}
 
 Rules:
 - amount is that line's total in euros as a plain number, decimal point, e.g. 14.5
 - desc keeps the Italian wording as printed
+- en is a short plain English reading of desc, e.g. "Branzino alla griglia" gives "Grilled sea bass". Use the English name itself where one exists, and repeat desc when it is already English or is a brand name
 - note holds any handwritten mark, initials or letters written beside the line, copied verbatim; otherwise null
 - include coperto, servizio and any discount lines (discounts negative)
 - do not include the grand total, change, payment method or VAT summary as lines
@@ -849,7 +1044,7 @@ async function readWithClaude(img, r){
   if(parsed.place && !r.place) r.place = parsed.place;
   if(parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) r.date = parsed.date;
   if(parsed.total && !parseAmount(r.statedTotal)) r.statedTotal = String(parsed.total);
-  return parsed.lines.map(l => ({ desc:l.desc, amount:l.amount, qty:l.qty||1, note:l.note||'' }));
+  return parsed.lines.map(l => ({ desc:l.desc, en:l.en||'', amount:l.amount, qty:l.qty||1, note:l.note||'' }));
 }
 
 function parseJsonLoose(text){
@@ -886,17 +1081,17 @@ function download(blob, filename){
 }
 function csvCell(v){ return '"' + String(v==null?'':v).replace(/"/g,'""') + '"'; }
 function exportCsv(){
-  const rows = [['Date','Place','Item','Qty','Amount EUR','Amount CAD','Assigned to','Per person EUR','Note','Payer']];
+  const rows = [['Date','Place','Item','Item in English','Qty','Amount EUR','Amount CAD','Assigned to','Per person EUR','Note','Payer']];
   for(const r of state.receipts){
     for(const l of r.lines){
       const owners = lineOwners(l);
       const names = l.assigned==='ALL' ? 'Everyone' : owners.map(id=>person(id).name).join(' + ');
       const each = owners.length ? round2(l.amount/owners.length) : 0;
-      rows.push([r.date, r.place, l.desc, l.qty, round2(l.amount).toFixed(2),
+      rows.push([r.date, r.place, l.desc, l.en||'', l.qty, round2(l.amount).toFixed(2),
         round2(l.amount*(state.trip.rate||0)).toFixed(2), names || 'UNASSIGNED',
         each.toFixed(2), l.note||'', r.payerId?person(r.payerId).name:'']);
     }
-    if(parseAmount(r.extra)) rows.push([r.date, r.place, 'Tip or rounding', 1, round2(parseAmount(r.extra)).toFixed(2),
+    if(parseAmount(r.extra)) rows.push([r.date, r.place, 'Tip or rounding', '', 1, round2(parseAmount(r.extra)).toFixed(2),
       round2(parseAmount(r.extra)*(state.trip.rate||0)).toFixed(2), 'Split by share','', '', r.payerId?person(r.payerId).name:'']);
   }
   rows.push([]);
