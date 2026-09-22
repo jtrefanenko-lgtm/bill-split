@@ -55,6 +55,19 @@ Item names stay in Italian, matching the paper, with an English reading undernea
 - The glossary stays quiet when it recognises too little, rather than guessing. Those lines show the Italian alone.
 - The English reading is carried into the CSV as its own column.
 
+## Exchange rates
+
+Set one trip rate on the Trip tab and every figure converts at it. When the card statement later shows what a receipt actually cost, enter that instead.
+
+- Actual charged in CAD sits on each receipt, under the printed total.
+- Enter it and that receipt converts at its own rate, derived from the amount you entered divided by the receipt's euro total.
+- Every line, every person's share and the receipt total follow immediately.
+- The receipt shows the rate it used and how far it sits from your trip rate, which is the card issuer's spread in plain sight.
+- Receipts with no actual carry on at the trip rate. The two live side by side.
+- Euros never move. The split, who owes whom and the settlement all run in euros, since that is the currency you actually paid in.
+- Where a figure spans receipts that converted differently, such as a settle-up transfer, the app uses a blended rate weighted by what each receipt cost, and says so.
+- The CSV carries the rate used and its source, receipt by receipt.
+
 ## Notation on the paper receipt
 
 The app matches these against each line:

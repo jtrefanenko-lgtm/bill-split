@@ -192,7 +192,8 @@ function setKey(v){ try{ v ? localStorage.setItem(KEY_KEY,v) : localStorage.remo
 const uid = () => Math.random().toString(36).slice(2,10);
 const round2 = n => Math.round((Number(n)||0)*100)/100;
 const eur = n => '€' + round2(n).toFixed(2);
-const cad = n => 'C$' + round2((Number(n)||0)*(Number(state.trip.rate)||0)).toFixed(2);
+const cad = n => cadAt(Number(state.trip.rate)||0, n);
+const cadAt = (rate, n) => 'C$' + round2((Number(n)||0)*(Number(rate)||0)).toFixed(2);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const person = id => state.people.find(p=>p.id===id);
 const receipt = id => state.receipts.find(r=>r.id===id);
@@ -473,6 +474,32 @@ function syncAllFlag(line){
   line.all = state.people.length > 0 && state.people.every(p => ids.includes(p.id));
 }
 function receiptLinesTotal(r){ return round2(r.lines.reduce((s,l)=>s+(Number(l.amount)||0),0)); }
+function receiptGrandEur(r){ return round2(receiptLinesTotal(r) + parseAmount(r.extra)); }
+
+/* When the card statement shows what a receipt actually cost in dollars,
+   that beats any nominal rate: it carries the issuer's spread and fees.
+   The receipt then converts at its own rate, and the rest of the trip
+   carries on at the rate you set. */
+function receiptRate(r){
+  const actual = parseAmount(r && r.actualCad);
+  const eurTotal = r ? receiptGrandEur(r) : 0;
+  if(actual > 0 && eurTotal > 0) return actual / eurTotal;
+  return Number(state.trip.rate) || 0;
+}
+function receiptHasActual(r){ return parseAmount(r && r.actualCad) > 0 && receiptGrandEur(r) > 0; }
+const rcad = (r, n) => cadAt(receiptRate(r), n);
+
+/* One rate across the whole trip, weighted by what each receipt cost.
+   Used where a figure spans receipts that converted differently. */
+function blendedRate(){
+  let e = 0, c = 0;
+  for(const r of state.receipts){
+    const amt = receiptGrandEur(r);
+    if(amt <= 0) continue;
+    e += amt; c += amt * receiptRate(r);
+  }
+  return e > 0 ? c / e : (Number(state.trip.rate) || 0);
+}
 function receiptUnassigned(r){ return round2(r.lines.filter(l=>lineOwners(l).length===0).reduce((s,l)=>s+(Number(l.amount)||0),0)); }
 
 /* Shares for one receipt: {personId: amount}.
@@ -529,24 +556,35 @@ function receiptShares(r){
   return out;
 }
 function tripTotals(){
-  const owed = {}, paid = {};
-  state.people.forEach(p => { owed[p.id]=0; paid[p.id]=0; });
+  const owed = {}, paid = {}, owedCad = {}, paidCad = {};
+  state.people.forEach(p => { owed[p.id]=0; paid[p.id]=0; owedCad[p.id]=0; paidCad[p.id]=0; });
   for(const r of state.receipts){
     const sh = receiptShares(r);
-    Object.keys(sh).forEach(id => { if(owed[id]!==undefined) owed[id]+=sh[id]; });
+    const rate = receiptRate(r);            // this receipt's own conversion
+    Object.keys(sh).forEach(id => {
+      if(owed[id]===undefined) return;
+      owed[id] += sh[id];
+      owedCad[id] += sh[id] * rate;
+    });
     if(r.payerId && paid[r.payerId]!==undefined){
-      paid[r.payerId] += Object.values(sh).reduce((a,b)=>a+b,0);
+      const total = Object.values(sh).reduce((a,b)=>a+b,0);
+      paid[r.payerId] += total;
+      paidCad[r.payerId] += total * rate;
     }
   }
-  state.people.forEach(p => { owed[p.id]=round2(owed[p.id]); paid[p.id]=round2(paid[p.id]); });
-  return { owed, paid };
+  state.people.forEach(p => {
+    owed[p.id]=round2(owed[p.id]); paid[p.id]=round2(paid[p.id]);
+    owedCad[p.id]=round2(owedCad[p.id]); paidCad[p.id]=round2(paidCad[p.id]);
+  });
+  return { owed, paid, owedCad, paidCad };
 }
 /* Each unit's owed and paid, summed from its members. */
 function unitTotals(){
-  const { owed, paid } = tripTotals();
+  const { owed, paid, owedCad, paidCad } = tripTotals();
+  const sum = (ids, src) => round2(ids.reduce((s,id) => s + (src[id]||0), 0));
   return unitList().map(u => Object.assign({}, u, {
-    owed: round2(u.memberIds.reduce((s,id) => s + (owed[id]||0), 0)),
-    paid: round2(u.memberIds.reduce((s,id) => s + (paid[id]||0), 0))
+    owed: sum(u.memberIds, owed),       paid: sum(u.memberIds, paid),
+    owedCad: sum(u.memberIds, owedCad), paidCad: sum(u.memberIds, paidCad)
   }));
 }
 
@@ -699,7 +737,7 @@ function viewReceiptList(){
         <strong>${esc(r.place||'Receipt')}</strong><br>
         <span class="muted small">${esc(r.date||'')} · ${r.lines.length} lines${un>0?` · <span style="color:var(--warn)">${eur(un)} unassigned</span>`:''}</span>
       </span>
-      <span class="amt">${eur(tot)}<br><span class="tiny muted">${cad(tot)}</span></span>
+      <span class="amt">${eur(tot)}<br><span class="tiny muted">${rcad(r, tot)}${receiptHasActual(r) ? ' actual' : ''}</span></span>
     </button>`;
   }).join('') || '<p class="muted small">No receipts yet.</p>';
 
@@ -726,6 +764,9 @@ function viewReceipt(){
   const grand = round2(linesTotal + parseAmount(r.extra));
   const stated = parseAmount(r.statedTotal);
   const diff = stated ? round2(grand - stated) : 0;
+  const actualUsed = receiptHasActual(r);
+  const tripRate = Number(state.trip.rate) || 0;
+  const spreadPct = tripRate > 0 ? (receiptRate(r) / tripRate - 1) * 100 : 0;
   const shares = receiptShares(r);
 
   return `
@@ -772,7 +813,13 @@ function viewReceipt(){
       <input inputmode="decimal" value="${r.extra||''}" placeholder="0,00" data-act="setExtra" data-id="${r.id}"></div>
     <div class="field"><label>Total printed on the receipt (optional check)</label>
       <input inputmode="decimal" value="${r.statedTotal||''}" placeholder="0,00" data-act="setStated" data-id="${r.id}"></div>
-    <div class="totrow big"><span>Total</span><span>${eur(grand)} <span class="tiny muted">${cad(grand)}</span></span></div>
+    <div class="field"><label>Actual charged in CAD (from your card statement)</label>
+      <input inputmode="decimal" value="${r.actualCad||''}" placeholder="leave blank to use the trip rate" data-act="setActualCad" data-id="${r.id}"></div>
+    <div class="totrow big"><span>Total</span><span>${eur(grand)} <span class="tiny muted">${rcad(r, grand)}</span></span></div>
+    <div class="totrow tiny muted">
+      <span>${actualUsed ? 'Rate from your statement' : 'Trip rate'}</span>
+      <span>€1 = C$${receiptRate(r).toFixed(4)}${actualUsed && tripRate > 0 ? ` · ${spreadPct >= 0 ? '+' : ''}${spreadPct.toFixed(1)}% vs the trip rate` : ''}</span>
+    </div>
     ${stated && Math.abs(diff)>0.01 ? `<div class="notice" style="margin-top:10px">Out by ${eur(Math.abs(diff))} against the printed total. ${diff>0?'Your lines add up to more than the receipt.':'A line is probably missing.'}</div>` : ''}
     ${receiptUnassigned(r)>0 ? `<div class="notice">${eur(receiptUnassigned(r))} still has no owner and is left out of the split.</div>` : ''}
   </div>
@@ -782,7 +829,7 @@ function viewReceipt(){
     ${state.people.map(p=>{
       const amt = shares[p.id]||0;
       if(amt<=0.004) return '';
-      return `<div class="totrow"><span><span class="tag" style="background:${p.colour}">${esc(p.tag)}</span> ${esc(p.name)}</span><span>${eur(amt)} <span class="tiny muted">${cad(amt)}</span></span></div>`;
+      return `<div class="totrow"><span><span class="tag" style="background:${p.colour}">${esc(p.tag)}</span> ${esc(p.name)}</span><span>${eur(amt)} <span class="tiny muted">${rcad(r, amt)}</span></span></div>`;
     }).join('') || '<p class="muted small">Nothing assigned yet.</p>'}
   </div>
 
@@ -835,7 +882,7 @@ function queueCard(r, unassigned){
     <h3 style="margin:6px 0 2px;font-size:18px">${esc(l.desc||'Item')}</h3>
     ${l.en ? `<div class="small muted">${esc(l.en)}</div>` : ''}
     ${l.qty && l.qty>1 ? `<div class="small muted">Quantity ${l.qty}</div>` : ''}
-    <div class="q-amt">${eur(l.amount)} <span class="tiny muted">${cad(l.amount)}</span></div>
+    <div class="q-amt">${eur(l.amount)} <span class="tiny muted">${rcad(r, l.amount)}</span></div>
     <p class="sub" style="margin-top:8px">Who is this for? Tap everyone sharing it.</p>
     <div class="chips">
       ${state.people.map(p=>{
@@ -879,6 +926,7 @@ function lineRow(r,l){
     </div>
     <div style="text-align:right">
       <div class="amt">${eur(l.amount)}</div>
+      <div class="tiny muted">${rcad(r, l.amount)}</div>
       <button class="ghost tiny" data-act="clearLine" data-id="${r.id}" data-line="${l.id}" style="padding:2px 6px;border:0;color:var(--muted)">reassign</button>
       <button class="ghost tiny danger" data-act="delLine" data-id="${r.id}" data-line="${l.id}" style="padding:2px 6px;border:0">delete</button>
     </div>
@@ -887,8 +935,10 @@ function lineRow(r,l){
 
 function viewSummary(){
   if(!state.people.length) return '<div class="card"><p class="muted">Add people on the Trip tab first.</p></div>';
-  const { owed, paid } = tripTotals();
+  const { owed, paid, owedCad } = tripTotals();
   const units = unitTotals();
+  const grandCad = round2(Object.values(owedCad).reduce((a,b)=>a+b,0));
+  const anyActual = state.receipts.some(receiptHasActual);
   const anyGroups = units.some(u => u.isGroup);
   const moves = settlements();
   const grand = round2(Object.values(owed).reduce((a,b)=>a+b,0));
@@ -901,13 +951,14 @@ function viewSummary(){
     ${units.map(u => `
       <div class="totrow">
         <span><span class="tag" style="background:${u.colour}">${esc(u.isGroup ? '2+' : person(u.memberIds[0]).tag)}</span> ${esc(u.name)}</span>
-        <span>${eur(u.owed)} <span class="tiny muted">${cad(u.owed)}</span></span>
+        <span>${eur(u.owed)} <span class="tiny muted">${'C$' + u.owedCad.toFixed(2)}</span></span>
       </div>
       ${u.isGroup ? u.memberIds.map(id => `
         <div class="totrow tiny muted" style="padding:2px 0 2px 14px">
-          <span>${esc(person(id).name)}</span><span>${eur(owed[id])}</span>
+          <span>${esc(person(id).name)}</span><span>${eur(owed[id])} · ${'C$' + (owedCad[id]||0).toFixed(2)}</span>
         </div>`).join('') : ''}`).join('')}
-    <div class="totrow big"><span>Trip total</span><span>${eur(grand)} <span class="tiny muted">${cad(grand)}</span></span></div>
+    <div class="totrow big"><span>Trip total</span><span>${eur(grand)} <span class="tiny muted">${'C$' + grandCad.toFixed(2)}</span></span></div>
+    ${anyActual ? `<p class="sub" style="margin-top:8px">Receipts with an actual amount from your statement convert at their own rate. The rest use the trip rate of C$${(Number(state.trip.rate)||0).toFixed(2)}.</p>` : ''}
   </div>
 
   <div class="card">
@@ -926,9 +977,9 @@ function viewSummary(){
     <h2>Settle up</h2>
     ${moves.length ? moves.map(m=>`
       <div class="totrow"><span><strong>${esc(m.fromName)}</strong> pays <strong>${esc(m.toName)}</strong></span>
-      <span>${eur(m.amount)} <span class="tiny muted">${cad(m.amount)}</span></span></div>`).join('')
+      <span>${eur(m.amount)} <span class="tiny muted">${cadAt(blendedRate(), m.amount)}</span></span></div>`).join('')
       : '<p class="muted small">Nobody owes anybody. Set a payer on each receipt to see transfers.</p>'}
-    <p class="sub" style="margin-top:10px">Fewest transfers that clear every balance${anyGroups ? ', settled household to household' : ''}.</p>
+    <p class="sub" style="margin-top:10px">Fewest transfers that clear every balance${anyGroups ? ', settled household to household' : ''}. Dollar figures use the trip's blended rate of C$${blendedRate().toFixed(4)}, since a balance spans receipts.</p>
   </div>
 
   <div class="card">
@@ -971,7 +1022,7 @@ document.addEventListener('click', e => {
       save(); render();
     },
     newReceipt(){
-      const r = { id:uid(), place:'', date:today(), payerId:'', lines:[], extra:'', statedTotal:'', photo:'' };
+      const r = { id:uid(), place:'', date:today(), payerId:'', lines:[], extra:'', statedTotal:'', actualCad:'', photo:'' };
       state.receipts.push(r); ui.receiptId=r.id; save(); render();
     },
     openReceipt(){ ui.receiptId=id; ui.queueLine=null; render(); },
@@ -1086,6 +1137,21 @@ document.addEventListener('click', e => {
   if(acts[act]){ e.preventDefault(); acts[act](); }
 });
 
+/* Typing in a figure that changes other figures has to redraw them, and a
+   redraw replaces the field you are typing in. So put the cursor back. */
+let redrawTimer = null;
+function redrawSoon(el){
+  const act = el.dataset.act, id = el.dataset.id || '', pos = el.selectionStart;
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(() => {
+    render();
+    const again = document.querySelector(`[data-act="${act}"]${id ? `[data-id="${id}"]` : ''}`);
+    if(!again) return;
+    again.focus();
+    try{ again.setSelectionRange(pos, pos); }catch(err){ /* not a text field */ }
+  }, 350);
+}
+
 document.addEventListener('input', e => {
   const el = e.target.closest('[data-act]'); if(!el) return;
   const act = el.dataset.act, r = receipt(el.dataset.id);
@@ -1099,9 +1165,14 @@ document.addEventListener('input', e => {
     setDate(){ if(r) r.date = el.value; },
     setPayer(){ if(r) r.payerId = el.value; },
     setExtra(){ if(r) r.extra = el.value; },
-    setStated(){ if(r) r.statedTotal = el.value; }
+    setStated(){ if(r) r.statedTotal = el.value; },
+    setActualCad(){ if(r) r.actualCad = el.value; }
   };
-  if(map[act]){ map[act](); save(); }
+  if(map[act]){
+    map[act](); save();
+    // These feed other figures on screen, so bring them along.
+    if(['setRate','setExtra','setActualCad','setStated'].includes(act)) redrawSoon(el);
+  }
 });
 
 document.addEventListener('change', e => {
@@ -1285,44 +1356,58 @@ function download(blob, filename){
 }
 function csvCell(v){ return '"' + String(v==null?'':v).replace(/"/g,'""') + '"'; }
 function exportCsv(){
-  const rows = [['Date','Place','Item','Item in English','Qty','Amount EUR','Amount CAD','Assigned to','Per person EUR','Note','Payer','Payer household']];
+  const { owed, paid, owedCad, paidCad } = tripTotals();
+  const rows = [['Date','Place','Item','Item in English','Qty','Amount EUR','Amount CAD','Rate used','Rate source','Assigned to','Per person EUR','Note','Payer','Payer household']];
   for(const r of state.receipts){
     for(const l of r.lines){
       const owners = lineOwners(l);
       const names = l.all ? 'Everyone' : owners.map(id=>person(id).name).join(' + ');
       const each = owners.length ? round2(l.amount/owners.length) : 0;
       rows.push([r.date, r.place, l.desc, l.en||'', l.qty, round2(l.amount).toFixed(2),
-        round2(l.amount*(state.trip.rate||0)).toFixed(2), names || 'UNASSIGNED',
+        round2(l.amount*receiptRate(r)).toFixed(2), receiptRate(r).toFixed(4),
+        receiptHasActual(r) ? 'card statement' : 'trip rate', names || 'UNASSIGNED',
         each.toFixed(2), l.note||'', r.payerId?person(r.payerId).name:'',
         r.payerId && groupOf(r.payerId) ? groupOf(r.payerId).name : '']);
     }
     if(parseAmount(r.extra)) rows.push([r.date, r.place, 'Tip or rounding', '', 1, round2(parseAmount(r.extra)).toFixed(2),
-      round2(parseAmount(r.extra)*(state.trip.rate||0)).toFixed(2), 'Split by share','', '', r.payerId?person(r.payerId).name:'',
+      round2(parseAmount(r.extra)*receiptRate(r)).toFixed(2), receiptRate(r).toFixed(4),
+      receiptHasActual(r) ? 'card statement' : 'trip rate', 'Split by share','', '', r.payerId?person(r.payerId).name:'',
       r.payerId && groupOf(r.payerId) ? groupOf(r.payerId).name : '']);
   }
   rows.push([]);
-  const { owed, paid } = tripTotals();
-  rows.push(['Person','Household','Owes EUR','Owes CAD','Paid EUR','Net EUR']);
+  rows.push(['Person','Household','Owes EUR','Owes CAD','Paid EUR','Paid CAD','Net EUR','Net CAD']);
   state.people.forEach(p => rows.push([p.name, groupOf(p.id)?groupOf(p.id).name:'', owed[p.id].toFixed(2),
-    round2(owed[p.id]*(state.trip.rate||0)).toFixed(2), paid[p.id].toFixed(2), round2(paid[p.id]-owed[p.id]).toFixed(2)]));
+    owedCad[p.id].toFixed(2), paid[p.id].toFixed(2), paidCad[p.id].toFixed(2),
+    round2(paid[p.id]-owed[p.id]).toFixed(2), round2(paidCad[p.id]-owedCad[p.id]).toFixed(2)]));
   rows.push([]);
-  rows.push(['Settles as','Owes EUR','Owes CAD','Paid EUR','Net EUR']);
-  unitTotals().forEach(u => rows.push([u.name, u.owed.toFixed(2),
-    round2(u.owed*(state.trip.rate||0)).toFixed(2), u.paid.toFixed(2), round2(u.paid-u.owed).toFixed(2)]));
+  rows.push(['Settles as','Owes EUR','Owes CAD','Paid EUR','Paid CAD','Net EUR','Net CAD']);
+  unitTotals().forEach(u => rows.push([u.name, u.owed.toFixed(2), u.owedCad.toFixed(2),
+    u.paid.toFixed(2), u.paidCad.toFixed(2),
+    round2(u.paid-u.owed).toFixed(2), round2(u.paidCad-u.owedCad).toFixed(2)]));
+  rows.push([]);
+  rows.push(['Receipt','Date','Total EUR','Total CAD','Rate used','Rate source']);
+  state.receipts.forEach(r => rows.push([r.place, r.date, receiptGrandEur(r).toFixed(2),
+    round2(receiptGrandEur(r)*receiptRate(r)).toFixed(2), receiptRate(r).toFixed(4),
+    receiptHasActual(r) ? 'card statement' : 'trip rate']));
   const csv = '﻿' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
   download(new Blob([csv],{type:'text/csv;charset=utf-8'}), (state.trip.name||'trip').replace(/\W+/g,'-').toLowerCase()+'-split.csv');
 }
 function summaryText(){
   const { owed, paid } = tripTotals();
-  const lines = [`${state.trip.name} - bill split`, `Rate used: EUR 1 = CAD ${(state.trip.rate||0).toFixed(2)}`, ''];
+  const anyActual = state.receipts.some(receiptHasActual);
+  const lines = [`${state.trip.name} - bill split`,
+    anyActual
+      ? `Blended rate: EUR 1 = CAD ${blendedRate().toFixed(4)} (some receipts converted at the actual charged)`
+      : `Rate used: EUR 1 = CAD ${(state.trip.rate||0).toFixed(2)}`,
+    ''];
   unitTotals().forEach(u => {
-    lines.push(`${u.name}: ${eur(u.owed)} (${cad(u.owed)}), paid ${eur(u.paid)}`);
+    lines.push(`${u.name}: ${eur(u.owed)} (C$${u.owedCad.toFixed(2)}), paid ${eur(u.paid)}`);
     if(u.isGroup) u.memberIds.forEach(id => lines.push(`   ${person(id).name}: ${eur(owed[id])}`));
   });
   const moves = settlements();
   if(moves.length){
     lines.push('', 'Settle up:');
-    moves.forEach(m => lines.push(`${m.fromName} pays ${m.toName} ${eur(m.amount)} (${cad(m.amount)})`));
+    moves.forEach(m => lines.push(`${m.fromName} pays ${m.toName} ${eur(m.amount)} (${cadAt(blendedRate(), m.amount)})`));
   }
   return lines.join('\n');
 }

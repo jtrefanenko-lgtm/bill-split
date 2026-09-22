@@ -45,7 +45,8 @@ vm.runInContext(`globalThis.__api = {
   get state(){ return state; }, set state(v){ state = v; },
   round2, eur, cad, parseAmount, matchNotation, suggestShared, parseReceiptText,
   addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned, translateItem,
-  tripTotals, settlements, unitList, unitTotals, groupOf, groupMembers, everyoneNow, syncAllFlag
+  tripTotals, settlements, unitList, unitTotals, groupOf, groupMembers, everyoneNow, syncAllFlag,
+  receiptRate, receiptHasActual, receiptGrandEur, blendedRate
 };`, sandbox);
 
 const S = sandbox.__api;
@@ -256,6 +257,64 @@ check('every euro paid comes back', S.round2(m4.reduce((a, m) => a + m.amount, 0
 console.log('\ncurrency');
 check('CAD conversion', S.cad(27), 'C$40.50');
 check('EUR format', S.eur(27.005), '€27.01');
+
+console.log('\nactual amount charged in CAD');
+/* Two couples again, one receipt each. The first is paid by card and the
+   statement later shows what it really cost; the second uses the trip rate. */
+S.state = {
+  trip: { name: 'Italy 2026', rate: 1.5 },
+  people: [
+    { id: 'p1', name: 'Jason', tag: 'J', colour: '#2563EB' },
+    { id: 'p2', name: 'Maria', tag: 'M', colour: '#059669' }
+  ],
+  groups: [], receipts: [], model: 'claude-opus-5'
+};
+const card = { id: 'c1', place: 'Osteria', date: '2026-09-22', payerId: 'p1', lines: [], extra: '', statedTotal: '', actualCad: '' };
+S.state.receipts.push(card);
+S.addLines(card, [
+  { desc: 'Branzino', amount: 60, qty: 1, note: 'J' },
+  { desc: 'Carbonara', amount: 40, qty: 1, note: 'M' }
+]);
+
+check('no actual means the trip rate', S.receiptRate(card), 1.5);
+check('and nothing claims otherwise', S.receiptHasActual(card), false);
+check('trip rate drives the dollars', S.tripTotals().owedCad, { p1: 90, p2: 60 });
+
+/* The statement says the 100 euro dinner cost 158 dollars, a wider rate
+   than 1.50 once the card's spread is in. */
+card.actualCad = '158,00';
+check('receipt total in euros', S.receiptGrandEur(card), 100);
+check('the actual sets the rate', S.receiptRate(card), 1.58);
+check('and is flagged as actual', S.receiptHasActual(card), true);
+check('every line converts at it', S.tripTotals().owedCad, { p1: 94.8, p2: 63.2 });
+check('the dollars add back to the statement', S.round2(Object.values(S.tripTotals().owedCad).reduce((a,b)=>a+b,0)), 158);
+check('euros are untouched', S.tripTotals().owed, { p1: 60, p2: 40 });
+check('the payer is credited in dollars too', S.tripTotals().paidCad.p1, 158);
+
+/* A tip is inside the receipt, so the actual covers it and the rate shifts. */
+card.extra = '10,00';
+check('tip is inside the converted total', S.receiptGrandEur(card), 110);
+check('rate adjusts to the larger euro total', S.round2(S.receiptRate(card) * 110), 158);
+card.extra = '';
+card.actualCad = '158,00';
+
+/* A second receipt with no actual keeps the trip rate. */
+const cash = { id: 'c2', place: 'Bar', date: '2026-09-23', payerId: 'p2', lines: [], extra: '', statedTotal: '', actualCad: '' };
+S.state.receipts.push(cash);
+S.addLines(cash, [{ desc: 'Caffe', amount: 100, qty: 1, note: '' }]);
+cash.lines[0].assigned = S.everyoneNow(); S.syncAllFlag(cash.lines[0]);
+
+check('receipts convert independently', [S.receiptRate(card), S.receiptRate(cash)], [1.58, 1.5]);
+check('dollars blend the two rates', S.tripTotals().owedCad, { p1: 169.8, p2: 138.2 });
+check('blended rate sits between them', S.blendedRate() > 1.5 && S.blendedRate() < 1.58, true);
+check('blended rate reproduces the total', S.round2(200 * S.blendedRate()), 308);
+check('settlement still runs in euros', S.settlements().map(m => m.amount), [10]);
+
+/* A nonsense entry must not poison the maths. */
+card.actualCad = '0';
+check('zero falls back to the trip rate', S.receiptRate(card), 1.5);
+card.actualCad = 'abc';
+check('junk falls back too', S.receiptRate(card), 1.5);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
