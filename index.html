@@ -182,8 +182,16 @@ function load(){
   }catch(e){ return blankState(); }
 }
 function save(){
-  try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
-  catch(e){ ui.err = 'Could not save locally: '+e.message; }
+  try{
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    ui.saveFailed = false;
+    return true;
+  }catch(e){
+    // Nothing is being written any more, so say so where it cannot be missed.
+    ui.saveFailed = true;
+    ui.err = 'Could not save locally: ' + e.message;
+    return false;
+  }
 }
 function getKey(){ try{ return localStorage.getItem(KEY_KEY)||''; }catch(e){ return ''; } }
 function setKey(v){ try{ v ? localStorage.setItem(KEY_KEY,v) : localStorage.removeItem(KEY_KEY); }catch(e){} }
@@ -620,9 +628,12 @@ function render(){
   document.getElementById('rateBadge').innerHTML = `€1 = C$${(Number(state.trip.rate)||0).toFixed(2)}`;
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab===ui.tab));
   const v = document.getElementById('view');
-  if(ui.tab==='trip') v.innerHTML = viewTrip();
-  else if(ui.tab==='receipts') v.innerHTML = ui.receiptId ? viewReceipt() : viewReceiptList();
-  else v.innerHTML = viewSummary();
+  const alarm = ui.saveFailed
+    ? '<div class="notice" style="background:var(--danger);color:#fff">This browser has stopped saving, usually because its storage is full. Download a backup from the Trip tab now, then remove a receipt photo or two.</div>'
+    : '';
+  if(ui.tab==='trip') v.innerHTML = alarm + viewTrip();
+  else if(ui.tab==='receipts') v.innerHTML = alarm + (ui.receiptId ? viewReceipt() : viewReceiptList());
+  else v.innerHTML = alarm + viewSummary();
   ui.err=''; ui.msg='';
 }
 
@@ -707,7 +718,7 @@ function viewTrip(){
         <option value="claude-sonnet-5"${state.model==='claude-sonnet-5'?' selected':''}>Claude Sonnet 5 (cheaper)</option>
         <option value="claude-haiku-4-5"${state.model==='claude-haiku-4-5'?' selected':''}>Claude Haiku 4.5 (cheapest)</option>
       </select></div>
-    <p class="sub">No key? The app falls back to on-device OCR, which is free but rougher. You can also type lines by hand at any time.</p>
+    <p class="sub">Without a key the app reads photos on the device itself. That is free, and rough: expect missing lines, wrong amounts and garbled names on faded Italian receipts. A key costs roughly a cent per receipt and reads them properly, handwritten initials included. Get one at console.anthropic.com and set a spending limit.</p>
   </div>
 
   <div class="card">
@@ -785,6 +796,9 @@ function viewReceipt(){
 
   ${photoCard(r)}
 
+  ${r.readBy === 'device' && r.lines.length ? `
+  <div class="notice">Read on this device without an API key. Check every line and amount against the paper before assigning. On-device reading struggles with faded Italian receipts.</div>` : ''}
+
   ${r.lines.length ? `
   <div class="card">
     <h2>Assigning lines</h2>
@@ -843,7 +857,7 @@ function photoCard(r){
   return `
   <div class="card">
     <h2>Receipt photo</h2>
-    <p class="sub">Pick one from your photo library, or take a new one. ${key ? 'Claude reads it.' : 'No API key set, so on-device OCR runs instead. Slower and rougher on faded receipts.'}</p>
+    <p class="sub">Pick one from your photo library, or take a new one. ${key ? 'Claude reads it.' : '<strong>No API key set, so the reading happens on this device.</strong> It is free but unreliable on faded receipts, so check every line. A key on the Trip tab fixes that for about a cent a receipt.'}</p>
     <!-- No capture attribute, so the phone offers the library alongside the
          camera. Photograph receipts over dinner and sort them out later. -->
     <input type="file" accept="image/*" id="photoInput" data-act="photo" data-id="${r.id}">
@@ -1234,10 +1248,11 @@ async function handlePhoto(receiptId, file){
   ui.busy = true; ui.err=''; render();
   try{
     const small = await shrink(file, 1600);
-    r.photo = small.dataUrl; save();
+    r.photo = await thumbnail(small.dataUrl, 420);   // reference only, kept small
+    save();
     let lines;
-    if(getKey()) lines = await readWithClaude(small, r);
-    else lines = await readWithTesseract(small.dataUrl);
+    if(getKey()){ r.readBy = 'claude'; lines = await readWithClaude(small, r); }
+    else       { r.readBy = 'device'; lines = await readWithTesseract(small.dataUrl); }
     if(!lines.length) throw new Error('No item lines came back. Try a sharper photo, or paste the text.');
     addLines(r, lines);
     save();
@@ -1247,6 +1262,90 @@ async function handlePhoto(receiptId, file){
     ui.busy = false; render();
     if(ui.err){ const s=document.getElementById('ocrStatus'); if(s) s.innerHTML = `<span class="err">${esc(ui.err)}</span>`; }
   }
+}
+
+/* Thermal receipts photograph badly: grey on grey, uneven light, small
+   print. Binarizing against a local average lifts the text off the
+   background far better than handing the reader the photo as taken.
+   Bradley's method, with an integral image so the window costs nothing. */
+function prepareForOcr(dataUrl, wantWidth){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try{
+        const MAX_PIXELS = 3.2e6;                       // keeps a phone comfortable
+        let scale = Math.min(2.5, Math.max(1, wantWidth / img.width));
+        if(img.width * img.height * scale * scale > MAX_PIXELS){
+          scale = Math.sqrt(MAX_PIXELS / (img.width * img.height));
+        }
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, h);
+        const im = ctx.getImageData(0, 0, w, h);
+        const px = im.data;
+
+        const grey = new Uint8ClampedArray(w * h);
+        for(let i = 0, j = 0; j < grey.length; i += 4, j++){
+          grey[j] = (px[i] * 0.299 + px[i+1] * 0.587 + px[i+2] * 0.114) | 0;
+        }
+
+        const stride = w + 1;
+        const sum = new Uint32Array(stride * (h + 1));
+        for(let y = 0; y < h; y++){
+          let run = 0;
+          for(let x = 0; x < w; x++){
+            run += grey[y * w + x];
+            sum[(y + 1) * stride + (x + 1)] = sum[y * stride + (x + 1)] + run;
+          }
+        }
+
+        const win  = Math.max(15, Math.round(w / 12)) | 1;   // odd, about a word wide
+        const half = win >> 1;
+        const BIAS = 0.86;                                   // darker than 86% of local mean is ink
+        for(let y = 0; y < h; y++){
+          const y0 = Math.max(0, y - half), y1 = Math.min(h - 1, y + half);
+          for(let x = 0; x < w; x++){
+            const x0 = Math.max(0, x - half), x1 = Math.min(w - 1, x + half);
+            const count = (x1 - x0 + 1) * (y1 - y0 + 1);
+            const area = sum[(y1+1)*stride + (x1+1)] - sum[y0*stride + (x1+1)]
+                       - sum[(y1+1)*stride + x0]     + sum[y0*stride + x0];
+            const ink = grey[y * w + x] * count < area * BIAS ? 0 : 255;
+            const i = (y * w + x) * 4;
+            px[i] = px[i+1] = px[i+2] = ink; px[i+3] = 255;
+          }
+        }
+        ctx.putImageData(im, 0, 0);
+        resolve(c.toDataURL('image/png'));       // lossless, so no JPEG fuzz around letters
+      }catch(err){
+        resolve(dataUrl);                        // any trouble, use the photo as taken
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/* A small copy to recognise the receipt by later. The full photo is far
+   too big to keep: a handful would fill the browser's storage and stop
+   the trip itself from saving. */
+function thumbnail(dataUrl, maxWidth){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxWidth / img.width);
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.6));
+    };
+    img.onerror = () => resolve('');
+    img.src = dataUrl;
+  });
 }
 
 function shrink(file, maxDim){
@@ -1331,12 +1430,34 @@ function parseJsonLoose(text){
 
 async function readWithTesseract(dataUrl){
   const status = document.getElementById('ocrStatus');
-  if(status) status.innerHTML = '<span class="spin"></span> Loading the on-device reader...';
+  const say = t => { if(status) status.innerHTML = t; };
+
+  say('<span class="spin"></span> Loading the on-device reader...');
   if(!window.Tesseract) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js');
   if(!window.Tesseract) throw new Error('On-device OCR needs a connection the first time. Paste the text instead, or add an API key.');
-  if(status) status.innerHTML = '<span class="spin"></span> Reading the photo on your device...';
-  const out = await window.Tesseract.recognize(dataUrl, 'ita+eng');
-  return parseReceiptText(out.data.text || '');
+
+  say('<span class="spin"></span> Sharpening the photo...');
+  const prepared = await prepareForOcr(dataUrl, 1800);
+
+  say('<span class="spin"></span> Reading the photo on your device...');
+  let text = '';
+  if(window.Tesseract.createWorker){
+    const worker = await window.Tesseract.createWorker('ita+eng', 1, { logger: () => {} });
+    try{
+      await worker.setParameters({
+        tessedit_pageseg_mode: '4',       // one column of text, which is what a receipt is
+        preserve_interword_spaces: '1'    // keeps the gap between an item and its price
+      });
+      const { data } = await worker.recognize(prepared);
+      text = data.text || '';
+    }finally{
+      try{ await worker.terminate(); }catch(e){}
+    }
+  }else{
+    const out = await window.Tesseract.recognize(prepared, 'ita+eng');
+    text = out.data.text || '';
+  }
+  return parseReceiptText(text);
 }
 
 function loadScript(src){

@@ -39,12 +39,14 @@ Three ways in, in order of accuracy:
 | Method | Setup | Notes |
 |---|---|---|
 | Claude vision | Paste an API key on the Trip tab | Best on Italian receipts. Reads handwritten initials. Roughly a cent per receipt. |
-| On-device OCR | None | Free, runs in the browser via Tesseract. Weaker on faded thermal paper. Needs a connection the first time to fetch the reader. |
+| On-device OCR | None | Free, runs in the browser via Tesseract. Expect missing lines, wrong amounts and garbled names on faded thermal paper, so check every line. The photo is upscaled and binarized against a local average first, which lifts faint print off the background. Needs a connection the first time to fetch the reader. |
 | Manual or paste | None | Type lines by hand, or paste receipt text and let the app split it into items. |
 
 Get an API key at console.anthropic.com. It is stored in your browser's local storage on your own device and sent only to `api.anthropic.com`. It is never written to this repository. Anyone with access to that phone has access to the key, so use a key with a spending limit.
 
-Review every line before assigning. OCR misreads faded receipts, and a wrong amount splits a wrong number.
+Review every line before assigning. OCR misreads faded receipts, and a wrong amount splits a wrong number. A receipt read on the device carries a warning above its lines saying exactly that.
+
+Photos are kept only as a small thumbnail for your reference. The full image is used for reading and then discarded, because a few full-size photos would fill the browser's storage and stop the trip itself from saving.
 
 ## Translation
 
