@@ -1063,6 +1063,7 @@ function photoCard(r){
     <!-- No capture attribute, so the phone offers the library alongside the
          camera. Photograph receipts over dinner and sort them out later. -->
     <input type="file" accept="image/*" id="photoInput" data-act="photo" data-id="${r.id}">
+    ${r.hasFullPhoto ? `<button class="wide" data-act="reread" data-id="${r.id}" style="margin-top:8px">Read this photo again</button>` : ''}
     <div id="ocrStatus" class="small muted" style="margin-top:8px">${ui.busy?'<span class="spin"></span> Reading the receipt...':''}${ui.err?`<span class="err">${esc(ui.err)}</span>`:''}</div>
     ${r.photo ? `<img class="thumb" src="${r.photo}" alt="Receipt photo">` : ''}
     <details style="margin-top:10px"><summary>Or paste receipt text</summary>
@@ -1247,6 +1248,7 @@ document.addEventListener('click', e => {
     delReceipt(){
       if(!confirm('Delete this receipt and all its lines?')) return;
       bury('receipts', id);
+      storeDel('photo:' + id).catch(()=>{});
       state.receipts = state.receipts.filter(r=>r.id!==id); ui.receiptId=null; save(); render();
     },
     addLine(){
@@ -1345,6 +1347,7 @@ document.addEventListener('click', e => {
     },
     checkUpdate(){ checkForUpdate(); },
     shareTrip(){ shareTrip(); },
+    reread(){ rereadPhoto(id); },
     doMerge(){ if(ui.pendingImport) applyImport(ui.pendingImport, 'merge'); },
     doReplace(){ if(ui.pendingImport) applyImport(ui.pendingImport, 'replace'); },
     cancelImport(){ ui.pendingImport = null; render(); },
@@ -1597,11 +1600,14 @@ async function handlePhoto(receiptId, file){
   try{
     const small = await shrink(file, 1600);
     r.photo = await thumbnail(small.dataUrl, 420);   // reference only, kept small
+    // The full picture lives beside the trip rather than in it, so it can
+    // be read again later without going back to the restaurant.
+    try{ await storePut('photo:' + r.id, small.dataUrl); r.hasFullPhoto = true; }catch(e){}
     save();
     let lines;
     if(getKey()){ r.readBy = 'claude'; lines = await readWithClaude(small, r); }
     else       { r.readBy = 'device'; lines = await readWithTesseract(small.dataUrl); }
-    if(!lines.length) throw new Error('No item lines came back. Try a sharper photo, or paste the text.');
+    if(!lines.length) throw new Error('Nothing readable came back. Open "Or paste receipt text" below and type the lines, which always works. A key on the Trip tab reads photos properly.');
     addLines(r, lines);
     save();
   }catch(err){
@@ -1612,33 +1618,117 @@ async function handlePhoto(receiptId, file){
   }
 }
 
+/* A receipt is the colourless thing in the picture. Brightness alone is
+   a poor test, because one end of a receipt is always better lit than
+   the other, while paper stays neutral whatever the light. A patterned
+   tablecloth almost never is, and left in the frame it binarizes into
+   dense hatching the reader tries to read as text. */
+function findReceipt(rgba, w, h){
+  const paper = new Uint8Array(w * h);
+  let found = 0;
+  for(let i = 0, j = 0; j < paper.length; i += 4, j++){
+    const r = rgba[i], g = rgba[i+1], b = rgba[i+2];
+    const hi = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    const lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    const colourfulness = hi ? (hi - lo) / hi : 0;
+    if(colourfulness < 0.28 && hi > 90){ paper[j] = 1; found++; }
+  }
+  const whole = { x:0, y:0, w, h };
+  if(found < w * h * 0.05) return whole;          // nothing paper-like in sight
+
+  const rows = new Float32Array(h), cols = new Float32Array(w);
+  for(let y = 0; y < h; y++){
+    const base = y * w;
+    for(let x = 0; x < w; x++){
+      if(paper[base + x]){ rows[y]++; cols[x]++; }
+    }
+  }
+
+  // The longest stretch where paper covers a fair share of the line.
+  const band = (profile, len, across) => {
+    let bestFrom = 0, bestTo = len - 1, bestRun = -1, from = -1;
+    for(let i = 0; i < len; i++){
+      const on = profile[i] / across >= 0.15;
+      if(on && from < 0) from = i;
+      if(from >= 0 && (!on || i === len - 1)){
+        const to = on ? i : i - 1;
+        if(to - from > bestRun){ bestRun = to - from; bestFrom = from; bestTo = to; }
+        from = -1;
+      }
+    }
+    return [bestFrom, bestTo];
+  };
+
+  const [y0, y1] = band(rows, h, w);
+  const [x0, x1] = band(cols, w, h);
+  const padX = Math.round((x1 - x0) * 0.03), padY = Math.round((y1 - y0) * 0.02);
+  const left = Math.max(0, x0 - padX), top = Math.max(0, y0 - padY);
+  const box = {
+    x: left, y: top,
+    w: Math.min(w, x1 + padX) - left,
+    h: Math.min(h, y1 + padY) - top
+  };
+  if(box.w < 40 || box.h < 40 || box.w * box.h < w * h * 0.10) return whole;
+  return box;
+}
+
 /* Thermal receipts photograph badly: grey on grey, uneven light, small
    print. Binarizing against a local average lifts the text off the
    background far better than handing the reader the photo as taken.
    Bradley's method, with an integral image so the window costs nothing. */
-function prepareForOcr(dataUrl, wantWidth){
+function prepareForOcr(dataUrl, wantWidth, binarize){
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
       try{
-        const MAX_PIXELS = 3.2e6;                       // keeps a phone comfortable
-        let scale = Math.min(2.5, Math.max(1, wantWidth / img.width));
-        if(img.width * img.height * scale * scale > MAX_PIXELS){
-          scale = Math.sqrt(MAX_PIXELS / (img.width * img.height));
-        }
-        const w = Math.max(1, Math.round(img.width * scale));
-        const h = Math.max(1, Math.round(img.height * scale));
+        const MAX_PIXELS = 4.2e6;
+
+        // Pass one, small and cheap: where is the receipt in this picture?
+        const scanW = Math.min(900, img.width);
+        const scanH = Math.max(1, Math.round(img.height * scanW / img.width));
+        const scan = document.createElement('canvas');
+        scan.width = scanW; scan.height = scanH;
+        const sctx = scan.getContext('2d', { willReadFrequently: true });
+        sctx.drawImage(img, 0, 0, scanW, scanH);
+        const box = findReceipt(sctx.getImageData(0, 0, scanW, scanH).data, scanW, scanH);
+        const k = img.width / scanW;                       // back to full size
+        const sx = Math.round(box.x * k), sy = Math.round(box.y * k);
+        const sw = Math.round(box.w * k), sh = Math.round(box.h * k);
+
+        // Pass two: the receipt alone, as large as the budget allows.
+        let scale = Math.min(3, Math.max(1, wantWidth / sw));
+        if(sw * sh * scale * scale > MAX_PIXELS) scale = Math.sqrt(MAX_PIXELS / (sw * sh));
+        const w = Math.max(1, Math.round(sw * scale));
+        const h = Math.max(1, Math.round(sh * scale));
 
         const c = document.createElement('canvas');
         c.width = w; c.height = h;
         const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0, w, h);
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+
         const im = ctx.getImageData(0, 0, w, h);
         const px = im.data;
-
         const grey = new Uint8ClampedArray(w * h);
         for(let i = 0, j = 0; j < grey.length; i += 4, j++){
-          grey[j] = (px[i] * 0.299 + px[i+1] * 0.587 + px[i+2] * 0.114) | 0;
+          const r = px[i], g = px[i+1], b = px[i+2];
+          const hi = r > g ? (r > b ? r : b) : (g > b ? g : b);
+          const lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+          // A receipt sits at an angle, so a rectangle around it always
+          // catches some tablecloth. Printed text is neutral, so anything
+          // with colour in it is not text and is wiped to white.
+          grey[j] = (hi && (hi - lo) / hi >= 0.30) ? 255
+                  : (r * 0.299 + g * 0.587 + b * 0.114) | 0;
+        }
+
+        if(!binarize){
+          // Greyscale only. Some photos read better left as they are, and
+          // the reader does its own thresholding.
+          for(let j = 0, i = 0; j < grey.length; j++, i += 4){
+            px[i] = px[i+1] = px[i+2] = grey[j]; px[i+3] = 255;
+          }
+          ctx.putImageData(im, 0, 0);
+          resolve(c.toDataURL('image/png'));
+          return;
         }
 
         const stride = w + 1;
@@ -1694,6 +1784,32 @@ function thumbnail(dataUrl, maxWidth){
     img.onerror = () => resolve('');
     img.src = dataUrl;
   });
+}
+
+/* Read the picture already held for this receipt, so a poor first go
+   does not mean going back for the paper. */
+async function rereadPhoto(receiptId){
+  const r = receipt(receiptId); if(!r) return;
+  let dataUrl = '';
+  try{ dataUrl = await storeGet('photo:' + r.id); }catch(e){}
+  if(!dataUrl){ alert('The full picture for this receipt is no longer held. Add the photo again.'); return; }
+  if(r.lines.length && !confirm(`Read the photo again and replace the ${r.lines.length} lines here?`)) return;
+
+  ui.busy = true; ui.err = ''; render();
+  try{
+    const lines = getKey()
+      ? await readWithClaude({ dataUrl, base64: dataUrl.split(',')[1], mime: 'image/jpeg' }, r)
+      : await readWithTesseract(dataUrl);
+    if(!lines.length) throw new Error('Still nothing readable. Paste the text instead.');
+    r.lines = []; ui.queueLine = null;
+    addLines(r, lines);
+    touch(r); save();
+  }catch(err){
+    ui.err = err.message || String(err);
+  }finally{
+    ui.busy = false; render();
+    if(ui.err){ const s = document.getElementById('ocrStatus'); if(s) s.innerHTML = `<span class="err">${esc(ui.err)}</span>`; }
+  }
 }
 
 function shrink(file, maxDim){
@@ -1789,28 +1905,36 @@ async function readWithTesseract(dataUrl){
   if(!window.Tesseract) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js');
   if(!window.Tesseract) throw new Error('On-device OCR needs a connection the first time. Paste the text instead, or add an API key.');
 
-  say('<span class="spin"></span> Sharpening the photo...');
-  const prepared = await prepareForOcr(dataUrl, 1800);
+  async function readOnce(image){
+    if(window.Tesseract.createWorker){
+      const worker = await window.Tesseract.createWorker('ita+eng', 1, { logger: () => {} });
+      try{
+        await worker.setParameters({
+          tessedit_pageseg_mode: '4',       // one column of text, which is what a receipt is
+          preserve_interword_spaces: '1'    // keeps the gap between an item and its price
+        });
+        const { data } = await worker.recognize(image);
+        return data.text || '';
+      }finally{
+        try{ await worker.terminate(); }catch(e){}
+      }
+    }
+    const out = await window.Tesseract.recognize(image, 'ita+eng');
+    return out.data.text || '';
+  }
+
+  say('<span class="spin"></span> Finding the receipt in the photo...');
+  const cleaned = await prepareForOcr(dataUrl, 1800, true);
 
   say('<span class="spin"></span> Reading the photo on your device...');
-  let text = '';
-  if(window.Tesseract.createWorker){
-    const worker = await window.Tesseract.createWorker('ita+eng', 1, { logger: () => {} });
-    try{
-      await worker.setParameters({
-        tessedit_pageseg_mode: '4',       // one column of text, which is what a receipt is
-        preserve_interword_spaces: '1'    // keeps the gap between an item and its price
-      });
-      const { data } = await worker.recognize(prepared);
-      text = data.text || '';
-    }finally{
-      try{ await worker.terminate(); }catch(e){}
-    }
-  }else{
-    const out = await window.Tesseract.recognize(prepared, 'ita+eng');
-    text = out.data.text || '';
-  }
-  return parseReceiptText(text);
+  let lines = parseReceiptText(await readOnce(cleaned));
+  if(lines.length) return lines;
+
+  // Cleaning up suits most photos and hurts a few. Rather than gamble,
+  // fall back to the plain picture and let the reader threshold it.
+  say('<span class="spin"></span> Nothing yet. Trying the photo as taken...');
+  const plain = await prepareForOcr(dataUrl, 1800, false);
+  return parseReceiptText(await readOnce(plain));
 }
 
 function loadScript(src){
