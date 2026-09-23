@@ -364,7 +364,8 @@ function setKey(v){ try{ v ? localStorage.setItem(KEY_KEY,v) : localStorage.remo
 const uid = () => Math.random().toString(36).slice(2,10);
 const round2 = n => Math.round((Number(n)||0)*100)/100;
 const eur = n => '€' + round2(n).toFixed(2);
-const cad = n => cadAt(Number(state.trip.rate)||0, n);
+const tripRate = () => parseAmount(state.trip.rate);
+const cad = n => cadAt(tripRate(), n);
 const cadAt = (rate, n) => 'C$' + round2((Number(n)||0)*(Number(rate)||0)).toFixed(2);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const person = id => state.people.find(p=>p.id===id);
@@ -656,7 +657,7 @@ function receiptRate(r){
   const actual = parseAmount(r && r.actualCad);
   const eurTotal = r ? receiptGrandEur(r) : 0;
   if(actual > 0 && eurTotal > 0) return actual / eurTotal;
-  return Number(state.trip.rate) || 0;
+  return tripRate();
 }
 function receiptHasActual(r){ return parseAmount(r && r.actualCad) > 0 && receiptGrandEur(r) > 0; }
 const rcad = (r, n) => cadAt(receiptRate(r), n);
@@ -670,7 +671,7 @@ function blendedRate(){
     if(amt <= 0) continue;
     e += amt; c += amt * receiptRate(r);
   }
-  return e > 0 ? c / e : (Number(state.trip.rate) || 0);
+  return e > 0 ? c / e : tripRate();
 }
 function receiptUnassigned(r){ return round2(r.lines.filter(l=>lineOwners(l).length===0).reduce((s,l)=>s+(Number(l.amount)||0),0)); }
 
@@ -789,7 +790,7 @@ function render(){
   const n = state.people.length, rc = state.receipts.length;
   document.getElementById('tripSub').textContent =
     n ? `${n} ${n===1?'person':'people'} · ${rc} ${rc===1?'receipt':'receipts'}` : 'Add the people on this trip first';
-  document.getElementById('rateBadge').innerHTML = `€1 = C$${(Number(state.trip.rate)||0).toFixed(2)}`;
+  document.getElementById('rateBadge').innerHTML = `€1 = C$${tripRate().toFixed(2)}`;
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab===ui.tab));
   const v = document.getElementById('view');
   const alarm = ui.saveFailed
@@ -879,7 +880,7 @@ function viewTrip(){
     <h2>Trip settings</h2>
     <div class="row">
       <div class="field"><label for="tName">Trip name</label><input id="tName" value="${esc(state.trip.name)}" data-act="setTripName"></div>
-      <div class="field"><label for="tRate">EUR to CAD rate</label><input id="tRate" type="number" step="0.001" inputmode="decimal" value="${state.trip.rate}" data-act="setRate"></div>
+      <div class="field"><label for="tRate">EUR to CAD rate</label><input id="tRate" type="text" inputmode="decimal" value="${esc(state.trip.rate)}" placeholder="1,47" data-act="setRate"></div>
     </div>
     <p class="sub">Every total shows in euros and Canadian dollars at this rate. Update it any time; all figures follow.</p>
   </div>
@@ -978,8 +979,8 @@ function viewReceipt(){
   const stated = parseAmount(r.statedTotal);
   const diff = stated ? round2(grand - stated) : 0;
   const actualUsed = receiptHasActual(r);
-  const tripRate = Number(state.trip.rate) || 0;
-  const spreadPct = tripRate > 0 ? (receiptRate(r) / tripRate - 1) * 100 : 0;
+  const nominal = tripRate();
+  const spreadPct = nominal > 0 ? (receiptRate(r) / nominal - 1) * 100 : 0;
   const shares = receiptShares(r);
 
   return `
@@ -1034,7 +1035,7 @@ function viewReceipt(){
     <div class="totrow big"><span>Total</span><span>${eur(grand)} <span class="tiny muted">${rcad(r, grand)}</span></span></div>
     <div class="totrow tiny muted">
       <span>${actualUsed ? 'Rate from your statement' : 'Trip rate'}</span>
-      <span>€1 = C$${receiptRate(r).toFixed(4)}${actualUsed && tripRate > 0 ? ` · ${spreadPct >= 0 ? '+' : ''}${spreadPct.toFixed(1)}% vs the trip rate` : ''}</span>
+      <span>€1 = C$${receiptRate(r).toFixed(4)}${actualUsed && nominal > 0 ? ` · ${spreadPct >= 0 ? '+' : ''}${spreadPct.toFixed(1)}% vs the trip rate` : ''}</span>
     </div>
     ${stated && Math.abs(diff)>0.01 ? `<div class="notice" style="margin-top:10px">Out by ${eur(Math.abs(diff))} against the printed total. ${diff>0?'Your lines add up to more than the receipt.':'A line is probably missing.'}</div>` : ''}
     ${receiptUnassigned(r)>0 ? `<div class="notice">${eur(receiptUnassigned(r))} still has no owner and is left out of the split.</div>` : ''}
@@ -1175,7 +1176,7 @@ function viewSummary(){
           <span>${esc(person(id).name)}</span><span>${eur(owed[id])} · ${'C$' + (owedCad[id]||0).toFixed(2)}</span>
         </div>`).join('') : ''}`).join('')}
     <div class="totrow big"><span>Trip total</span><span>${eur(grand)} <span class="tiny muted">${'C$' + grandCad.toFixed(2)}</span></span></div>
-    ${anyActual ? `<p class="sub" style="margin-top:8px">Receipts with an actual amount from your statement convert at their own rate. The rest use the trip rate of C$${(Number(state.trip.rate)||0).toFixed(2)}.</p>` : ''}
+    ${anyActual ? `<p class="sub" style="margin-top:8px">Receipts with an actual amount from your statement convert at their own rate. The rest use the trip rate of C$${tripRate().toFixed(2)}.</p>` : ''}
   </div>
 
   <div class="card">
@@ -1390,7 +1391,7 @@ document.addEventListener('input', e => {
   const act = el.dataset.act, r = receipt(el.dataset.id);
   const map = {
     setTripName(){ state.trip.name = el.value; document.getElementById('tripName').textContent = el.value||'Italy Bill Split'; },
-    setRate(){ state.trip.rate = parseAmount(el.value); document.getElementById('rateBadge').innerHTML = `€1 = C$${(Number(state.trip.rate)||0).toFixed(2)}`; },
+    setRate(){ state.trip.rate = el.value; document.getElementById('rateBadge').innerHTML = `€1 = C$${tripRate().toFixed(2)}`; },
     setKey(){ setKey(el.value.trim()); return; },
     setModel(){ state.model = el.value; },
     setGroupName(){ ui.newGroupName = el.value; return; },
@@ -2032,7 +2033,7 @@ function summaryText(){
   const lines = [`${state.trip.name} - bill split`,
     anyActual
       ? `Blended rate: EUR 1 = CAD ${blendedRate().toFixed(4)} (some receipts converted at the actual charged)`
-      : `Rate used: EUR 1 = CAD ${(state.trip.rate||0).toFixed(2)}`,
+      : `Rate used: EUR 1 = CAD ${tripRate().toFixed(2)}`,
     ''];
   unitTotals().forEach(u => {
     lines.push(`${u.name}: ${eur(u.owed)} (C$${u.owedCad.toFixed(2)}), paid ${eur(u.paid)}`);

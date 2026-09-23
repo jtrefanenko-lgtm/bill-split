@@ -47,7 +47,7 @@ vm.runInContext(`globalThis.__api = {
   addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned, translateItem,
   tripTotals, settlements, unitList, unitTotals, groupOf, groupMembers, everyoneNow, syncAllFlag,
   receiptRate, receiptHasActual, receiptGrandEur, blendedRate, hydrate, validateBackup,
-  mergeTrips, later
+  mergeTrips, later, tripRate
 };`, sandbox);
 
 const S = sandbox.__api;
@@ -439,6 +439,19 @@ check('merging with itself is a no-op', [self.people.length, self.receipts.lengt
 /* An empty phone simply receives everything. */
 const fresh = S.mergeTrips(trip({}), phoneA);
 check('an empty phone takes the lot', [fresh.people.length, fresh.receipts.length], [1, 1]);
+
+console.log('\nthe trip rate as typed');
+/* Typed in stages, the way a thumb actually enters it. The rate is held
+   as text so a half-typed figure is never destroyed, and read as a
+   number wherever it is used. */
+S.state.trip.rate = '1';      check('a whole number', S.tripRate(), 1);
+S.state.trip.rate = '1.';     check('mid-keystroke, the point survives', S.state.trip.rate, '1.');
+check('and reads as one so far', S.tripRate(), 1);
+S.state.trip.rate = '1.6';    check('one decimal', S.tripRate(), 1.6);
+S.state.trip.rate = '1.62';   check('two decimals', S.tripRate(), 1.62);
+S.state.trip.rate = '1,62';   check('a comma works too', S.tripRate(), 1.62);
+S.state.trip.rate = '';       check('empty reads as zero', S.tripRate(), 0);
+S.state.trip.rate = 1.5;      check('a number from an older save still works', S.tripRate(), 1.5);
 
 console.log('\ncurrency');
 check('CAD conversion', S.cad(27), 'C$40.50');
