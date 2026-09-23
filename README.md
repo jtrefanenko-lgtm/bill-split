@@ -38,11 +38,11 @@ Three ways in, in order of accuracy:
 
 | Method | Setup | Notes |
 |---|---|---|
-| Claude vision | Paste an API key on the Trip tab | Best on Italian receipts. Reads handwritten initials. Roughly a cent per receipt. |
+| Claude vision | Paste an API key on the Trip tab | Best on Italian receipts. Reads handwritten initials. About 3 cents a receipt on Opus 5, 1 cent on Sonnet 5, under a cent on Haiku 4.5. |
 | On-device OCR | None | Free, runs in the browser via Tesseract. The receipt is found in the photo first and everything with colour in it is wiped white, so a patterned tablecloth is not read as text. If nothing comes back, the photo is tried again unprocessed.|
 | Manual or paste | None | Type lines by hand, or paste receipt text and let the app split it into items. |
 
-Get an API key at console.anthropic.com. It is stored in your browser's local storage on your own device and sent only to `api.anthropic.com`. It is never written to this repository. Anyone with access to that phone has access to the key, so use a key with a spending limit.
+Get an API key at console.anthropic.com. The API bills separately from any Claude subscription, so a Pro or Max plan does not cover it. Five dollars of credit covers a fortnight of dinners several times over. It is stored in your browser's local storage on your own device and sent only to `api.anthropic.com`. It is never written to this repository. Anyone with access to that phone has access to the key, so use a key with a spending limit.
 
 Review every line before assigning. OCR misreads faded receipts, and a wrong amount splits a wrong number. A receipt read on the device carries a warning above its lines saying exactly that.
 

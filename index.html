@@ -895,7 +895,7 @@ function viewTrip(){
         <option value="claude-sonnet-5"${state.model==='claude-sonnet-5'?' selected':''}>Claude Sonnet 5 (cheaper)</option>
         <option value="claude-haiku-4-5"${state.model==='claude-haiku-4-5'?' selected':''}>Claude Haiku 4.5 (cheapest)</option>
       </select></div>
-    <p class="sub">Without a key the app reads photos on the device itself. That is free, and rough: expect missing lines, wrong amounts and garbled names on faded Italian receipts. A key costs roughly a cent per receipt and reads them properly, handwritten initials included. Get one at console.anthropic.com and set a spending limit.</p>
+    <p class="sub">Without a key the app reads photos on the device itself. That is free, and rough: expect missing lines, wrong amounts and garbled names on faded Italian receipts. A key reads them properly, handwritten initials included, for about 3 cents a receipt on Opus 5 or 1 cent on Sonnet 5. Get one at console.anthropic.com, add 5 dollars of credit, which covers a fortnight of dinners several times over, and set a spending limit.</p>
   </div>
 
   <div class="card">
@@ -1059,7 +1059,7 @@ function photoCard(r){
   return `
   <div class="card">
     <h2>Receipt photo</h2>
-    <p class="sub">Pick one from your photo library, or take a new one. ${key ? 'Claude reads it.' : '<strong>No API key set, so the reading happens on this device.</strong> It is free but unreliable on faded receipts, so check every line. A key on the Trip tab fixes that for about a cent a receipt.'}</p>
+    <p class="sub">Pick one from your photo library, or take a new one. ${key ? 'Claude reads it.' : '<strong>No API key set, so the reading happens on this device.</strong> It is free but unreliable on faded receipts, so check every line. A key on the Trip tab fixes that for a few cents a receipt.'}</p>
     <!-- No capture attribute, so the phone offers the library alongside the
          camera. Photograph receipts over dinner and sort them out later. -->
     <input type="file" accept="image/*" id="photoInput" data-act="photo" data-id="${r.id}">
