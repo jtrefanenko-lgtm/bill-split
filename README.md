@@ -27,6 +27,7 @@ Travelling as couples? Put people who settle together into a household on the Tr
 - **Receipts tab**, add a receipt, set the place and who paid.
 - Add the receipt photo, either from your photo library or taken there and then. Claude reads the items, the amounts and any handwritten initials beside a line. Photographing receipts over dinner and sorting them out later at the hotel works well.
 - Every line shows a plain English reading under the Italian, so you know what you are assigning. Branzino alla griglia reads as Grilled sea bass.
+- Tap **edit** beside any line to correct what was read: the item, the quantity and the amount. Every total, the split and the reconciliation against the printed total follow as you type, and the line keeps whoever it was already assigned to.
 - Lines carrying a notation are assigned on the spot. The app shows "noted on receipt" beside them.
 - Lines with no notation come up one at a time. Tap the people sharing the line, then Next. Tap Everyone for shared plates, wine and coperto.
 - Add a tip or rounding at the bottom. It rides on each person's share of the items.

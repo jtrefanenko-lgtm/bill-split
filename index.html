@@ -151,7 +151,7 @@ const SHARED_ITEM_HINTS = ['coperto','servizio','service','mancia','tip','acqua'
 
 let state = blankState();
 let ui = { tab:'trip', receiptId:null, queueLine:null, busy:false, msg:'', err:'',
-           newGroupName:'', newGroupMembers:[], storedIn:'', pendingImport:null };
+           newGroupName:'', newGroupMembers:[], storedIn:'', pendingImport:null, editLine:null };
 
 /* ---------- storage ---------- */
 function blankState(){
@@ -362,15 +362,24 @@ function setKey(v){ try{ v ? localStorage.setItem(KEY_KEY,v) : localStorage.remo
 
 /* ---------- helpers ---------- */
 const uid = () => Math.random().toString(36).slice(2,10);
-const round2 = n => Math.round((Number(n)||0)*100)/100;
+function parseAmount(v){
+  if(typeof v === 'number') return v;
+  let s = String(v||'').replace(/[^\d,.\-]/g,'');
+  if(s.includes(',') && s.includes('.')) s = s.lastIndexOf(',')>s.lastIndexOf('.') ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'');
+  else s = s.replace(',','.');
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+const round2 = n => Math.round(parseAmount(n)*100)/100;
 const eur = n => '€' + round2(n).toFixed(2);
 const tripRate = () => parseAmount(state.trip.rate);
 const cad = n => cadAt(tripRate(), n);
-const cadAt = (rate, n) => 'C$' + round2((Number(n)||0)*(Number(rate)||0)).toFixed(2);
+const cadAt = (rate, n) => 'C$' + round2(parseAmount(n) * parseAmount(rate)).toFixed(2);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const person = id => state.people.find(p=>p.id===id);
 const receipt = id => state.receipts.find(r=>r.id===id);
 const group  = id => state.groups.find(g=>g.id===id);
+const lineIn = (r, id) => (r && r.lines ? r.lines.find(l => l.id === id) : null);
 
 /* Couples and households -------------------------------------------
    Lines are still assigned to individuals. A household is who settles
@@ -406,14 +415,7 @@ function unitList(){
   }
   return out;
 }
-function parseAmount(v){
-  if(typeof v === 'number') return v;
-  let s = String(v||'').replace(/[^\d,.\-]/g,'');
-  if(s.includes(',') && s.includes('.')) s = s.lastIndexOf(',')>s.lastIndexOf('.') ? s.replace(/\./g,'').replace(',','.') : s.replace(/,/g,'');
-  else s = s.replace(',','.');
-  const n = parseFloat(s);
-  return isNaN(n) ? 0 : n;
-}
+
 function today(){ return new Date().toISOString().slice(0,10); }
 
 /* ---------- notation matching -----------------------------------
@@ -646,7 +648,7 @@ function syncAllFlag(line){
   const ids = Array.isArray(line.assigned) ? line.assigned : [];
   line.all = state.people.length > 0 && state.people.every(p => ids.includes(p.id));
 }
-function receiptLinesTotal(r){ return round2(r.lines.reduce((s,l)=>s+(Number(l.amount)||0),0)); }
+function receiptLinesTotal(r){ return round2(r.lines.reduce((s,l)=>s+parseAmount(l.amount),0)); }
 function receiptGrandEur(r){ return round2(receiptLinesTotal(r) + parseAmount(r.extra)); }
 
 /* When the card statement shows what a receipt actually cost in dollars,
@@ -673,7 +675,7 @@ function blendedRate(){
   }
   return e > 0 ? c / e : tripRate();
 }
-function receiptUnassigned(r){ return round2(r.lines.filter(l=>lineOwners(l).length===0).reduce((s,l)=>s+(Number(l.amount)||0),0)); }
+function receiptUnassigned(r){ return round2(r.lines.filter(l=>lineOwners(l).length===0).reduce((s,l)=>s+parseAmount(l.amount),0)); }
 
 /* Shares for one receipt: {personId: amount}.
    Everything runs in whole cents and every leftover cent is handed to a
@@ -687,7 +689,7 @@ function receiptShares(r){
   for(const l of r.lines){
     const owners = lineOwners(l);
     if(!owners.length) continue;
-    const amt = Math.round((Number(l.amount)||0) * 100);
+    const amt = Math.round(parseAmount(l.amount) * 100);
     const base = Math.trunc(amt / owners.length);
     owners.forEach(id => { cents[id] += base; });
 
@@ -1091,7 +1093,7 @@ function queueCard(r, unassigned){
   const isAll = !!l.all;
   const hint = suggestShared(l.desc);
   const chosen = isAll ? state.people.length : picked.length;
-  const each = chosen ? round2((Number(l.amount)||0)/chosen) : 0;
+  const each = chosen ? round2(parseAmount(l.amount)/chosen) : 0;
   const left = unassigned.length - (chosen ? 1 : 0);
 
   return `
@@ -1128,7 +1130,9 @@ function queueCard(r, unassigned){
   </div>`;
 }
 
-function lineRow(r,l){
+function lineRow(r, l){
+  if(ui.editLine === l.id) return lineEditor(r, l);
+
   const owners = lineOwners(l);
   const tags = l.all
     ? '<span class="tag plain">Everyone</span>'
@@ -1145,8 +1149,30 @@ function lineRow(r,l){
     <div style="text-align:right">
       <div class="amt">${eur(l.amount)}</div>
       <div class="tiny muted">${rcad(r, l.amount)}</div>
+      <button class="ghost tiny" data-act="editLine" data-id="${r.id}" data-line="${l.id}" style="padding:2px 6px;border:0;color:var(--accent);font-weight:600">edit</button>
       <button class="ghost tiny" data-act="clearLine" data-id="${r.id}" data-line="${l.id}" style="padding:2px 6px;border:0;color:var(--muted)">reassign</button>
       <button class="ghost tiny danger" data-act="delLine" data-id="${r.id}" data-line="${l.id}" style="padding:2px 6px;border:0">delete</button>
+    </div>
+  </div>`;
+}
+
+/* Correcting a misread figure at the table has to be quick, and has to
+   move every total with it. */
+function lineEditor(r, l){
+  return `
+  <div class="item" style="display:block;border-left:3px solid var(--accent);padding-left:10px">
+    <label>Item</label>
+    <input value="${esc(l.desc||'')}" data-act="setLineDesc" data-id="${r.id}" data-line="${l.id}" placeholder="Item">
+    <div class="row" style="margin-top:8px">
+      <div style="flex:0 1 90px"><label>Quantity</label>
+        <input inputmode="numeric" value="${esc(l.qty || 1)}" data-act="setLineQty" data-id="${r.id}" data-line="${l.id}"></div>
+      <div style="flex:1 1 130px"><label>Amount in euros</label>
+        <input inputmode="decimal" value="${esc(typeof l.amount === 'number' ? l.amount.toFixed(2) : l.amount)}" data-act="setLineAmount" data-id="${r.id}" data-line="${l.id}" placeholder="0,00"></div>
+    </div>
+    <div class="totrow tiny muted"><span>Converts to</span><span>${rcad(r, l.amount)}</span></div>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="primary" data-act="doneLine" data-id="${r.id}" style="flex:1">Done</button>
+      <button class="ghost danger" data-act="delLine" data-id="${r.id}" data-line="${l.id}">Delete line</button>
     </div>
   </div>`;
 }
@@ -1244,8 +1270,8 @@ document.addEventListener('click', e => {
       const r = touch({ id:uid(), place:'', date:today(), payerId:'', lines:[], extra:'', statedTotal:'', actualCad:'', photo:'' });
       state.receipts.push(r); ui.receiptId=r.id; save(); render();
     },
-    openReceipt(){ ui.receiptId=id; ui.queueLine=null; render(); },
-    backToList(){ ui.receiptId=null; ui.queueLine=null; render(); },
+    openReceipt(){ ui.receiptId=id; ui.queueLine=null; ui.editLine=null; render(); },
+    backToList(){ ui.receiptId=null; ui.queueLine=null; ui.editLine=null; render(); },
     delReceipt(){
       if(!confirm('Delete this receipt and all its lines?')) return;
       bury('receipts', id);
@@ -1264,6 +1290,8 @@ document.addEventListener('click', e => {
       const r = receipt(id); if(!r) return;
       r.lines = r.lines.filter(l=>l.id!==el.dataset.line); save(); render();
     },
+    editLine(){ ui.editLine = el.dataset.line; render(); },
+    doneLine(){ ui.editLine = null; render(); },
     clearLine(){
       const r = receipt(id); if(!r) return;
       const l = r.lines.find(x=>x.id===el.dataset.line);
@@ -1400,7 +1428,10 @@ document.addEventListener('input', e => {
     setPayer(){ if(r) r.payerId = el.value; },
     setExtra(){ if(r) r.extra = el.value; },
     setStated(){ if(r) r.statedTotal = el.value; },
-    setActualCad(){ if(r) r.actualCad = el.value; }
+    setActualCad(){ if(r) r.actualCad = el.value; },
+    setLineDesc(){ const l = lineIn(r, el.dataset.line); if(l){ l.desc = el.value; l.en = ''; } },
+    setLineQty(){ const l = lineIn(r, el.dataset.line); if(l) l.qty = Math.max(1, parseInt(el.value, 10) || 1); },
+    setLineAmount(){ const l = lineIn(r, el.dataset.line); if(l) l.amount = el.value; }
   };
   if(map[act]){
     map[act]();
@@ -1408,7 +1439,7 @@ document.addEventListener('input', e => {
     if(['setTripName','setRate'].includes(act)) touch(state.trip);
     save();
     // These feed other figures on screen, so bring them along.
-    if(['setRate','setExtra','setActualCad','setStated'].includes(act)) redrawSoon(el);
+    if(['setRate','setExtra','setActualCad','setStated','setLineAmount','setLineQty'].includes(act)) redrawSoon(el);
   }
 });
 
@@ -1997,9 +2028,9 @@ function exportCsv(){
     for(const l of r.lines){
       const owners = lineOwners(l);
       const names = l.all ? 'Everyone' : owners.map(id=>person(id).name).join(' + ');
-      const each = owners.length ? round2(l.amount/owners.length) : 0;
+      const each = owners.length ? round2(parseAmount(l.amount)/owners.length) : 0;
       rows.push([r.date, r.place, l.desc, l.en||'', l.qty, round2(l.amount).toFixed(2),
-        round2(l.amount*receiptRate(r)).toFixed(2), receiptRate(r).toFixed(4),
+        round2(parseAmount(l.amount)*receiptRate(r)).toFixed(2), receiptRate(r).toFixed(4),
         receiptHasActual(r) ? 'card statement' : 'trip rate', names || 'UNASSIGNED',
         each.toFixed(2), l.note||'', r.payerId?person(r.payerId).name:'',
         r.payerId && groupOf(r.payerId) ? groupOf(r.payerId).name : '']);

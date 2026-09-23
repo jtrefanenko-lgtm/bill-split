@@ -47,7 +47,7 @@ vm.runInContext(`globalThis.__api = {
   addLines, lineOwners, receiptShares, receiptLinesTotal, receiptUnassigned, translateItem,
   tripTotals, settlements, unitList, unitTotals, groupOf, groupMembers, everyoneNow, syncAllFlag,
   receiptRate, receiptHasActual, receiptGrandEur, blendedRate, hydrate, validateBackup,
-  mergeTrips, later, tripRate
+  mergeTrips, later, tripRate, cadAt
 };`, sandbox);
 
 const S = sandbox.__api;
@@ -439,6 +439,47 @@ check('merging with itself is a no-op', [self.people.length, self.receipts.lengt
 /* An empty phone simply receives everything. */
 const fresh = S.mergeTrips(trip({}), phoneA);
 check('an empty phone takes the lot', [fresh.people.length, fresh.receipts.length], [1, 1]);
+
+console.log('\ncorrecting a misread amount');
+/* An amount is held exactly as typed, so a half-entered figure is never
+   destroyed, and every total reads it as a number. */
+S.state = {
+  trip: { name: 'Italy 2026', rate: 1.5 },
+  people: [
+    { id: 'p1', name: 'Jason', tag: 'J',  colour: '#2563EB' },
+    { id: 'p2', name: 'Maria', tag: 'M',  colour: '#059669' },
+    { id: 'p3', name: 'Tom',   tag: 'TB', colour: '#D97706' }
+  ],
+  groups: [], receipts: [], model: 'claude-opus-5'
+};
+const mis = { id: 'rm', place: 'Osteria', date: '2026-09-23', payerId: 'p1', lines: [], extra: '', statedTotal: '' };
+S.state.receipts.push(mis);
+S.addLines(mis, [
+  { desc: 'Coperto', amount: 10, qty: 4, note: '' },
+  { desc: 'Milanese', amount: 6.9, qty: 3, note: '' },     // 69,00 misread as 6,90
+  { desc: 'Caprese', amount: 15, qty: 1, note: '' }
+]);
+check('the misread total', S.receiptLinesTotal(mis), 31.90);
+
+mis.lines[1].amount = '69,00';                              // typed by hand, comma and all
+check('a typed amount is kept as typed', mis.lines[1].amount, '69,00');
+check('and the total reads it', S.receiptLinesTotal(mis), 94.00);
+
+mis.lines.forEach(l => { l.assigned = S.everyoneNow(); S.syncAllFlag(l); });
+const msh = S.receiptShares(mis);
+check('the split follows the correction', Object.values(msh).map(v => S.round2(v)).sort(), [31.33, 31.33, 31.34]);
+check('and still adds back exactly', S.round2(Object.values(msh).reduce((a,b) => a+b, 0)), 94.00);
+
+mis.lines[1].amount = '69.';                                // mid-keystroke
+check('a half-typed figure does not break the total', S.receiptLinesTotal(mis), 94.00);
+mis.lines[1].amount = '';
+check('an emptied amount counts as nothing', S.receiptLinesTotal(mis), 25.00);
+
+/* The figure on screen beside a corrected line has to convert too. */
+check('a typed amount still converts', S.cadAt(1.5, '69,00'), 'C$103.50');
+check('so does one typed with a point', S.cadAt(1.5, '69.00'), 'C$103.50');
+check('and a plain number', S.cadAt(1.5, 69), 'C$103.50');
+check('an empty one shows nothing owed', S.cadAt(1.5, ''), 'C$0.00');
 
 console.log('\nthe trip rate as typed');
 /* Typed in stages, the way a thumb actually enters it. The rate is held
