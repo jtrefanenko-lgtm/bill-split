@@ -1850,11 +1850,16 @@ Rules:
 - a single letter printed after the amount, such as A or B, is the VAT class the till prints on every line. It is not a handwritten mark, so leave note null
 - do not invent lines you cannot read`;
 
-async function readWithClaude(img, r){
+/* Effort is not accepted by every model: Haiku 4.5 rejects it outright.
+   Send it only where it is supported, and if a model refuses it anyway,
+   drop it and go again rather than failing in front of someone holding
+   a receipt. */
+const EFFORT_MODELS = ['claude-opus-5', 'claude-sonnet-5'];
+
+function claudeBody(model, img, withEffort){
   const body = {
-    model: state.model || 'claude-opus-5',
+    model,
     max_tokens: 8000,
-    output_config: { effort: 'low' },
     messages: [{
       role: 'user',
       content: [
@@ -1863,7 +1868,12 @@ async function readWithClaude(img, r){
       ]
     }]
   };
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  if(withEffort) body.output_config = { effort: 'low' };
+  return body;
+}
+
+function callClaude(body){
+  return fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{
       'content-type':'application/json',
@@ -1873,17 +1883,43 @@ async function readWithClaude(img, r){
     },
     body: JSON.stringify(body)
   });
-  if(!res.ok){
-    const t = await res.text();
-    if(res.status===401) throw new Error('The API key was rejected. Check it on the Trip tab.');
-    if(res.status===429) throw new Error('Rate limited. Wait a moment and try again.');
-    throw new Error(`Claude returned ${res.status}. ${t.slice(0,180)}`);
+}
+
+/* Pulls the sentence worth reading out of an API error. */
+function apiMessage(text){
+  try{
+    const j = JSON.parse(text);
+    if(j && j.error && j.error.message) return j.error.message;
+  }catch(e){}
+  return String(text || '').slice(0, 160);
+}
+
+async function readWithClaude(img, r){
+  const model = state.model || 'claude-opus-5';
+  let res = await callClaude(claudeBody(model, img, EFFORT_MODELS.includes(model)));
+
+  if(!res.ok && res.status === 400){
+    const why = apiMessage(await res.clone().text());
+    if(/effort|output_config/i.test(why)){
+      res = await callClaude(claudeBody(model, img, false));   // that model will not take it
+    }
   }
+
+  if(!res.ok){
+    const why = apiMessage(await res.text());
+    if(res.status === 401) throw new Error('That API key was rejected. Check it on the Trip tab, and that the key has not been deleted in the console.');
+    if(res.status === 429) throw new Error('Too many requests just now. Wait half a minute and try again.');
+    if(res.status === 402 || /credit|balance|quota/i.test(why)) throw new Error('Your Anthropic account is out of credit. Top it up in the console billing page.');
+    if(res.status === 404 || /model/i.test(why)) throw new Error(`That model was refused: ${why} Try another on the Trip tab.`);
+    if(res.status >= 500) throw new Error('Anthropic had a problem at their end. Try again in a moment.');
+    throw new Error(`Claude could not read it: ${why}`);
+  }
+
   const data = await res.json();
   if(data.stop_reason === 'refusal') throw new Error('Claude declined to read that image.');
   const text = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
   const parsed = parseJsonLoose(text);
-  if(!parsed || !Array.isArray(parsed.lines)) throw new Error('Could not read the response as receipt lines.');
+  if(!parsed || !Array.isArray(parsed.lines)) throw new Error('The reply did not come back as receipt lines. Try again, or paste the text.');
   if(parsed.place && !r.place) r.place = parsed.place;
   if(parsed.date && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date)) r.date = parsed.date;
   if(parsed.total && !parseAmount(r.statedTotal)) r.statedTotal = String(parsed.total);
