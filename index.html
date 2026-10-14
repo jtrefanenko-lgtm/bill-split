@@ -912,21 +912,21 @@ function viewTrip(){
   <div class="card" style="border-color:var(--accent);border-width:2px">
     <h2>A trip file is ready</h2>
     <div class="totrow"><span>In the file</span><span>${countOf(ui.pendingImport.people.length,'person','people')} · ${countOf(ui.pendingImport.receipts.length,'receipt','receipts')}</span></div>
-    <div class="totrow"><span>On this phone</span><span>${countOf(state.people.length,'person','people')} · ${countOf(state.receipts.length,'receipt','receipts')}</span></div>
+    <div class="totrow"><span>On this device</span><span>${countOf(state.people.length,'person','people')} · ${countOf(state.receipts.length,'receipt','receipts')}</span></div>
     <div class="btnrow" style="margin-top:12px">
       <button class="primary" data-act="doMerge" style="flex:1">Merge them</button>
       <button data-act="doReplace">Replace</button>
       <button class="ghost" data-act="cancelImport">Cancel</button>
     </div>
-    <p class="sub" style="margin-top:8px">Merging keeps both sides, taking the later edit of any receipt they both hold. Replacing throws away what is on this phone. Either way a snapshot is kept first.</p>
+    <p class="sub" style="margin-top:8px">Merging keeps both sides, taking the later edit of any receipt they both hold. Replacing throws away what is on this device. Either way a snapshot is kept first.</p>
   </div>` : ''}
 
   <div class="card">
     <h2>Your data</h2>
     ${backupAge() !== null && backupAge() >= 3 && state.receipts.length ? `<div class="notice">Last backup was ${backupAge()} days ago. Download one now.</div>` : ''}
-    ${backupAge() === null && state.receipts.length ? '<div class="notice">You have never taken a backup. Download one now and put it somewhere off this phone.</div>' : ''}
+    ${backupAge() === null && state.receipts.length ? '<div class="notice">You have never taken a backup. Download one now and put it somewhere off this device.</div>' : ''}
     <div class="btnrow">
-      <button class="primary" data-act="shareTrip">Send to another phone</button>
+      <button class="primary" data-act="shareTrip">Send to another device</button>
       <button data-act="exportJson">Download backup</button>
       <label class="chip" style="padding:11px 14px;border-radius:10px">Restore from backup
         <input type="file" accept="application/json,.json" data-act="importJson" style="display:none"></label>
@@ -938,8 +938,8 @@ function viewTrip(){
     <div class="totrow tiny muted">
       <span>Last backup</span><span>${state.lastBackupAt ? esc(state.lastBackupAt.slice(0,10)) : 'never'}</span>
     </div>
-    <p class="sub" style="margin-top:8px">Send to another phone hands the trip over by AirDrop, message or any app on your share sheet. On the other phone, open Restore from backup and pick the file, then choose merge or replace.</p>
-    <p class="sub">Everything lives on this phone. Clearing website data wipes it, and a lost phone takes the trip with it, so keep a backup in Files or iCloud. Restoring replaces what is here, and a snapshot is kept first so it is undoable.</p>
+    <p class="sub" style="margin-top:8px">The app runs in any browser: phone, tablet or laptop. Send to another device hands the trip over by AirDrop, message, or whatever your share sheet offers, and saves a file where there is no share sheet. On the other device, open the same web address, then Restore from backup and pick the file.</p>
+    <p class="sub">Each device keeps its own copy, so opening the app elsewhere starts empty until you send the trip across. Clearing website data wipes it, and a lost device takes the trip with it, so keep a backup somewhere else. Restoring replaces what is here, and a snapshot is kept first so it is undoable.</p>
   </div>`;
 }
 
@@ -1453,7 +1453,7 @@ document.addEventListener('change', e => {
   }
 });
 
-/* Hand the trip to another phone through whatever it uses to share
+/* Hand the trip to another device through whatever it uses to share
    files. No server involved, so nothing here depends on a connection. */
 function tripFilename(){
   return (state.trip.name || 'trip').replace(/\W+/g,'-').toLowerCase()
@@ -1472,7 +1472,7 @@ async function shareTrip(){
     if(e && e.name === 'AbortError') return;      // they changed their mind
   }
   download(new Blob([payload], { type:'application/json' }), name);
-  alert('This phone would not open a share sheet, so the file was saved instead. Send it across however you like, then open it on the other phone with Restore from backup.');
+  alert('This device has no share sheet, so the file was saved to your downloads instead. Send it across however you like, then open it on the other device with Restore from backup.');
 }
 
 /* A backup you cannot put back is not a backup. Reading a file only

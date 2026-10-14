@@ -123,25 +123,31 @@ The Trip tab shows which build you are running, stamped with the commit and date
 - Your trip data lives in localStorage and is untouched by an update. Roster, receipts, assignments and the rate all carry over.
 - Offline, the check reports it could not reach the server and the app keeps working from cache.
 
-## Sharing a trip between phones
+## Using it on more than one device
 
-Send to another phone on the Trip tab hands the whole trip over through AirDrop, a message, or anything else on your share sheet. No server, nothing to fail abroad.
+The app is a web page, so it runs in any modern browser: iPhone, Android, iPad, Windows or Mac. Open the same address and add it to the home screen or install it as an app.
 
-On the receiving phone, open Restore from backup and pick the file.
+Each device keeps its own copy of the trip, and its own API key. Opening the app somewhere new starts empty until you send the trip across.
 
-- An empty phone simply takes the trip.
-- A phone with its own receipts is offered a choice: merge or replace, with both sides counted so you know what you are choosing.
-- Merging keeps everything. Two phones that added different receipts both keep theirs.
-- Where both phones hold the same receipt, the later edit of that receipt wins, as a whole.
-- A receipt deleted on one phone stays deleted, unless the other phone edited it after the deletion.
-- A person removed on one phone is removed, and a household loses them with it.
+## Sharing a trip between devices
+
+Send to another device on the Trip tab hands the whole trip over through AirDrop, a message, or anything else on your share sheet. Where there is no share sheet, such as most laptops, it saves a file to send across yourself. No server, nothing to fail abroad.
+
+On the receiving device, open the same web address, then Restore from backup and pick the file.
+
+- An empty device simply takes the trip.
+- A device with its own receipts is offered a choice: merge or replace, with both sides counted so you know what you are choosing.
+- Merging keeps everything. Two devices that added different receipts both keep theirs.
+- Where both devices hold the same receipt, the later edit of that receipt wins, as a whole.
+- A receipt deleted on one device stays deleted, unless the other edited it after the deletion.
+- A person removed on one device is removed, and a household loses them with it.
 - A snapshot is kept before either merge or replace, so it is undoable.
 
-This is a copy, not a live link. Send it again whenever you want the other phone caught up.
+This is a copy, not a live link. Send it again whenever you want the other device caught up.
 
 ## Where the data lives
 
-The trip is held on the phone, in IndexedDB. Nothing is sent anywhere.
+The trip is held on the device, in IndexedDB. Nothing is sent anywhere.
 
 - IndexedDB has room in the hundreds of megabytes. The old store was localStorage, with about five, which a few receipt photos would have filled.
 - A trip saved by an older version is read across the first time it loads, then the old copy is cleared out.
